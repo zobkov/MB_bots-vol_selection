@@ -17,6 +17,24 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# Async геттеры для вопросов pr
+async def get_pr_q1_data(**kwargs):
+    return {"question_text": PR_QUESTIONS[1]["text"]}
+
+async def get_pr_q2_data(**kwargs):
+    return {"question_text": PR_QUESTIONS[2]["text"]}
+
+async def get_pr_q3_data(**kwargs):
+    return {"question_text": PR_QUESTIONS[3]["text"]}
+
+async def get_pr_q4_data(**kwargs):
+    return {"question_text": PR_QUESTIONS[4]["text"]}
+
+async def get_pr_q5_data(**kwargs):
+    return {"question_text": PR_QUESTIONS[5]["text"]}
+
+
+
 # Данные вопросов PR
 PR_QUESTIONS = {
     1: {
@@ -150,7 +168,7 @@ pr_test_dialog = Dialog(
         *create_timer_display("pr_q1"),
         TextInput(id="pr_q1_input", on_success=on_pr_q1_input),
         state=PRTestSG.q1,
-        getter=[lambda **kwargs: {"question_text": PR_QUESTIONS[1]["text"]}, get_timer_progress_data("pr_q1")],
+        getter=[get_pr_q1_data, get_timer_progress_data("pr_q1")],
         on_process_result=start_pr_timer_q1,
     ),
     Window(
@@ -158,7 +176,7 @@ pr_test_dialog = Dialog(
         *create_timer_display("pr_q2"),
         TextInput(id="pr_q2_input", on_success=on_pr_q2_input),
         state=PRTestSG.q2,
-        getter=[lambda **kwargs: {"question_text": PR_QUESTIONS[2]["text"]}, get_timer_progress_data("pr_q2")],
+        getter=[get_pr_q2_data, get_timer_progress_data("pr_q2")],
         on_process_result=start_pr_timer_q2,
     ),
     Window(
@@ -166,7 +184,7 @@ pr_test_dialog = Dialog(
         *create_timer_display("pr_q3"),
         TextInput(id="pr_q3_input", on_success=on_pr_q3_input),
         state=PRTestSG.q3,
-        getter=[lambda **kwargs: {"question_text": PR_QUESTIONS[3]["text"]}, get_timer_progress_data("pr_q3")],
+        getter=[get_pr_q3_data, get_timer_progress_data("pr_q3")],
         on_process_result=start_pr_timer_q3,
     ),
     Window(
@@ -174,7 +192,7 @@ pr_test_dialog = Dialog(
         *create_timer_display("pr_q4"),
         TextInput(id="pr_q4_input", on_success=on_pr_q4_input),
         state=PRTestSG.q4,
-        getter=[lambda **kwargs: {"question_text": PR_QUESTIONS[4]["text"]}, get_timer_progress_data("pr_q4")],
+        getter=[get_pr_q4_data, get_timer_progress_data("pr_q4")],
         on_process_result=start_pr_timer_q4,
     ),
     Window(

@@ -17,6 +17,24 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# Async геттеры для вопросов program
+async def get_program_q1_data(**kwargs):
+    return {"question_text": PROGRAM_QUESTIONS[1]["text"]}
+
+async def get_program_q2_data(**kwargs):
+    return {"question_text": PROGRAM_QUESTIONS[2]["text"]}
+
+async def get_program_q3_data(**kwargs):
+    return {"question_text": PROGRAM_QUESTIONS[3]["text"]}
+
+async def get_program_q4_data(**kwargs):
+    return {"question_text": PROGRAM_QUESTIONS[4]["text"]}
+
+async def get_program_q5_data(**kwargs):
+    return {"question_text": PROGRAM_QUESTIONS[5]["text"]}
+
+
+
 # Данные вопросов программы
 PROGRAM_QUESTIONS = {
     1: {
@@ -185,7 +203,7 @@ program_test_dialog = Dialog(
         ),
         state=ProgramTestSG.q1,
         getter=[
-            lambda **kwargs: {"question_text": PROGRAM_QUESTIONS[1]["text"]},
+            get_program_q1_data,
             get_timer_progress_data("program_q1")
         ],
         on_process_result=start_program_timer_q1,
@@ -203,7 +221,7 @@ program_test_dialog = Dialog(
         ),
         state=ProgramTestSG.q2,
         getter=[
-            lambda **kwargs: {"question_text": PROGRAM_QUESTIONS[2]["text"]},
+            get_program_q2_data,
             get_timer_progress_data("program_q2")
         ],
         on_process_result=start_program_timer_q2,
@@ -221,7 +239,7 @@ program_test_dialog = Dialog(
         ),
         state=ProgramTestSG.q3,
         getter=[
-            lambda **kwargs: {"question_text": PROGRAM_QUESTIONS[3]["text"]},
+            get_program_q3_data,
             get_timer_progress_data("program_q3")
         ],
         on_process_result=start_program_timer_q3,
@@ -239,7 +257,7 @@ program_test_dialog = Dialog(
         ),
         state=ProgramTestSG.q4,
         getter=[
-            lambda **kwargs: {"question_text": PROGRAM_QUESTIONS[4]["text"]},
+            get_program_q4_data,
             get_timer_progress_data("program_q4")
         ],
         on_process_result=start_program_timer_q4,
@@ -257,7 +275,7 @@ program_test_dialog = Dialog(
         ),
         state=ProgramTestSG.q5,
         getter=[
-            lambda **kwargs: {"question_text": PROGRAM_QUESTIONS[5]["text"]},
+            get_program_q5_data,
             get_timer_progress_data("program_q5")
         ],
         on_process_result=start_program_timer_q5,

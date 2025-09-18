@@ -20,6 +20,26 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# Async геттеры для вопросов логистики
+async def get_logistics_q1_data(**kwargs):
+    return {"question_text": LOGISTICS_QUESTIONS[1]["text"]}
+
+async def get_logistics_q2_data(**kwargs):
+    return {"question_text": LOGISTICS_QUESTIONS[2]["text"]}
+
+async def get_logistics_q3_data(**kwargs):
+    return {"question_text": LOGISTICS_QUESTIONS[3]["text"]}
+
+async def get_logistics_q4_data(**kwargs):
+    return {"question_text": LOGISTICS_QUESTIONS[4]["text"]}
+
+async def get_logistics_q5_data(**kwargs):
+    return {"question_text": LOGISTICS_QUESTIONS[5]["text"]}
+
+async def get_logistics_q6_data(**kwargs):
+    return {"question_text": LOGISTICS_QUESTIONS[6]["text"]}
+
+
 # Данные вопросов логистики
 LOGISTICS_QUESTIONS = {
     1: {
@@ -199,7 +219,7 @@ logistics_test_dialog = Dialog(
         ),
         state=LogisticsTestSG.q1,
         getter=[
-            lambda **kwargs: {"question_text": LOGISTICS_QUESTIONS[1]["text"]},
+            get_logistics_q1_data,
             get_timer_progress_data("logistics_q1")
         ],
         on_process_result=start_logistics_timer_q1,
@@ -217,7 +237,7 @@ logistics_test_dialog = Dialog(
         ),
         state=LogisticsTestSG.q2,
         getter=[
-            lambda **kwargs: {"question_text": LOGISTICS_QUESTIONS[2]["text"]},
+            get_logistics_q2_data,
             get_timer_progress_data("logistics_q2")
         ],
         on_process_result=start_logistics_timer_q2,
@@ -235,7 +255,7 @@ logistics_test_dialog = Dialog(
         ),
         state=LogisticsTestSG.q3,
         getter=[
-            lambda **kwargs: {"question_text": LOGISTICS_QUESTIONS[3]["text"]},
+            get_logistics_q3_data,
             get_timer_progress_data("logistics_q3")
         ],
         on_process_result=start_logistics_timer_q3,
@@ -253,7 +273,7 @@ logistics_test_dialog = Dialog(
         ),
         state=LogisticsTestSG.q4,
         getter=[
-            lambda **kwargs: {"question_text": LOGISTICS_QUESTIONS[4]["text"]},
+            get_logistics_q4_data,
             get_timer_progress_data("logistics_q4")
         ],
         on_process_result=start_logistics_timer_q4,
@@ -271,7 +291,7 @@ logistics_test_dialog = Dialog(
         ),
         state=LogisticsTestSG.q5,
         getter=[
-            lambda **kwargs: {"question_text": LOGISTICS_QUESTIONS[5]["text"]},
+            get_logistics_q5_data,
             get_timer_progress_data("logistics_q5")
         ],
         on_process_result=start_logistics_timer_q5,
@@ -289,7 +309,7 @@ logistics_test_dialog = Dialog(
         ),
         state=LogisticsTestSG.q6,
         getter=[
-            lambda **kwargs: {"question_text": LOGISTICS_QUESTIONS[6]["text"]},
+            get_logistics_q6_data,
             get_timer_progress_data("logistics_q6")
         ],
         on_process_result=start_logistics_timer_q6,

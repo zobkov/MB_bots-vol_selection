@@ -17,6 +17,24 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# Async геттеры для вопросов marketing
+async def get_marketing_q1_data(**kwargs):
+    return {"question_text": MARKETING_QUESTIONS[1]["text"]}
+
+async def get_marketing_q2_data(**kwargs):
+    return {"question_text": MARKETING_QUESTIONS[2]["text"]}
+
+async def get_marketing_q3_data(**kwargs):
+    return {"question_text": MARKETING_QUESTIONS[3]["text"]}
+
+async def get_marketing_q4_data(**kwargs):
+    return {"question_text": MARKETING_QUESTIONS[4]["text"]}
+
+async def get_marketing_q5_data(**kwargs):
+    return {"question_text": MARKETING_QUESTIONS[5]["text"]}
+
+
+
 # Данные вопросов маркетинга
 MARKETING_QUESTIONS = {
     1: {
@@ -147,7 +165,7 @@ marketing_test_dialog = Dialog(
         *create_timer_display("marketing_q1"),
         TextInput(id="marketing_q1_input", on_success=on_marketing_q1_input),
         state=MarketingTestSG.q1,
-        getter=[lambda **kwargs: {"question_text": MARKETING_QUESTIONS[1]["text"]}, get_timer_progress_data("marketing_q1")],
+        getter=[get_marketing_q1_data, get_timer_progress_data("marketing_q1")],
         on_process_result=start_marketing_timer_q1,
     ),
     
@@ -157,7 +175,7 @@ marketing_test_dialog = Dialog(
         *create_timer_display("marketing_q2"),
         TextInput(id="marketing_q2_input", on_success=on_marketing_q2_input),
         state=MarketingTestSG.q2,
-        getter=[lambda **kwargs: {"question_text": MARKETING_QUESTIONS[2]["text"]}, get_timer_progress_data("marketing_q2")],
+        getter=[get_marketing_q2_data, get_timer_progress_data("marketing_q2")],
         on_process_result=start_marketing_timer_q2,
     ),
     
@@ -167,7 +185,7 @@ marketing_test_dialog = Dialog(
         *create_timer_display("marketing_q3"),
         TextInput(id="marketing_q3_input", on_success=on_marketing_q3_input),
         state=MarketingTestSG.q3,
-        getter=[lambda **kwargs: {"question_text": MARKETING_QUESTIONS[3]["text"]}, get_timer_progress_data("marketing_q3")],
+        getter=[get_marketing_q3_data, get_timer_progress_data("marketing_q3")],
         on_process_result=start_marketing_timer_q3,
     ),
     
@@ -176,7 +194,7 @@ marketing_test_dialog = Dialog(
         Format("📸 <b>Маркетинг - Вопрос 4/5</b>\n\n{question_text}\n\n(Время не ограничено)"),
         TextInput(id="marketing_q4_input", on_success=on_marketing_q4_input),
         state=MarketingTestSG.q4,
-        getter=lambda **kwargs: {"question_text": MARKETING_QUESTIONS[4]["text"]},
+        getter=get_marketing_q4_data,
     ),
     
     # Вопрос 5 (без таймера - для фотографов)
@@ -184,7 +202,7 @@ marketing_test_dialog = Dialog(
         Format("📸 <b>Маркетинг - Вопрос 5/5</b>\n\n{question_text}\n\n(Время не ограничено)"),
         TextInput(id="marketing_q5_input", on_success=on_marketing_q5_input),
         state=MarketingTestSG.q5,
-        getter=lambda **kwargs: {"question_text": MARKETING_QUESTIONS[5]["text"]},
+        getter=get_marketing_q5_data,
     ),
     
     # Завершение теста

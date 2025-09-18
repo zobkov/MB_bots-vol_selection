@@ -17,6 +17,24 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# Async геттеры для вопросов partners
+async def get_partners_q1_data(**kwargs):
+    return {"question_text": PARTNERS_QUESTIONS[1]["text"]}
+
+async def get_partners_q2_data(**kwargs):
+    return {"question_text": PARTNERS_QUESTIONS[2]["text"]}
+
+async def get_partners_q3_data(**kwargs):
+    return {"question_text": PARTNERS_QUESTIONS[3]["text"]}
+
+async def get_partners_q4_data(**kwargs):
+    return {"question_text": PARTNERS_QUESTIONS[4]["text"]}
+
+async def get_partners_q5_data(**kwargs):
+    return {"question_text": PARTNERS_QUESTIONS[5]["text"]}
+
+
+
 # Данные вопросов партнеров
 PARTNERS_QUESTIONS = {
     1: {
@@ -179,7 +197,7 @@ partners_test_dialog = Dialog(
         *create_timer_display("partners_q1"),
         TextInput(id="partners_q1_input", on_success=on_partners_q1_input),
         state=PartnersTestSG.q1,
-        getter=[lambda **kwargs: {"question_text": PARTNERS_QUESTIONS[1]["text"]}, get_timer_progress_data("partners_q1")],
+        getter=[get_partners_q1_data, get_timer_progress_data("partners_q1")],
         on_process_result=start_partners_timer_q1,
     ),
     Window(
@@ -187,7 +205,7 @@ partners_test_dialog = Dialog(
         *create_timer_display("partners_q2"),
         TextInput(id="partners_q2_input", on_success=on_partners_q2_input),
         state=PartnersTestSG.q2,
-        getter=[lambda **kwargs: {"question_text": PARTNERS_QUESTIONS[2]["text"]}, get_timer_progress_data("partners_q2")],
+        getter=[get_partners_q2_data, get_timer_progress_data("partners_q2")],
         on_process_result=start_partners_timer_q2,
     ),
     Window(
@@ -195,7 +213,7 @@ partners_test_dialog = Dialog(
         *create_timer_display("partners_q3"),
         TextInput(id="partners_q3_input", on_success=on_partners_q3_input),
         state=PartnersTestSG.q3,
-        getter=[lambda **kwargs: {"question_text": PARTNERS_QUESTIONS[3]["text"]}, get_timer_progress_data("partners_q3")],
+        getter=[get_partners_q3_data, get_timer_progress_data("partners_q3")],
         on_process_result=start_partners_timer_q3,
     ),
     Window(
@@ -203,7 +221,7 @@ partners_test_dialog = Dialog(
         *create_timer_display("partners_q4"),
         TextInput(id="partners_q4_input", on_success=on_partners_q4_input),
         state=PartnersTestSG.q4,
-        getter=[lambda **kwargs: {"question_text": PARTNERS_QUESTIONS[4]["text"]}, get_timer_progress_data("partners_q4")],
+        getter=[get_partners_q4_data, get_timer_progress_data("partners_q4")],
         on_process_result=start_partners_timer_q4,
     ),
     Window(
@@ -211,7 +229,7 @@ partners_test_dialog = Dialog(
         *create_timer_display("partners_q5"),
         TextInput(id="partners_q5_input", on_success=on_partners_q5_input),
         state=PartnersTestSG.q5,
-        getter=[lambda **kwargs: {"question_text": PARTNERS_QUESTIONS[5]["text"]}, get_timer_progress_data("partners_q5")],
+        getter=[get_partners_q5_data, get_timer_progress_data("partners_q5")],
         on_process_result=start_partners_timer_q5,
     ),
     Window(

@@ -10,14 +10,102 @@ from aiogram_dialog.widgets.input import TextInput
 
 from bot.states import TestingSG, LogisticsTestSG, ProgramTestSG, PartnersTestSG, PRTestSG, MarketingTestSG, MenuSG
 from bot.dialogs.timer_utils import (
-    start_timer_background, get_timer_progress_data, create_timer_display, 
-    handle_timeout_bg, calculate_time_taken, stop_timer
+    start_timer_background,
+    get_timer_progress_data,
+    stop_timer,
+    create_timer_display,
+    stop_active_timer
 )
+
+# Функция для сохранения всех ответов общего тестирования
 from database.repositories import UserRepository, Stage2Repository
 from database.db import Database
+from config.config import Config
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# Async геттеры для вопросов
+async def get_question_data(question_num: int, **kwargs):
+    """Получить данные для вопроса"""
+    return {"question_text": GENERAL_QUESTIONS[question_num]["text"]}
+
+# Функция для сохранения всех ответов общего тестирования
+
+# Async геттеры для вопросов с автозапуском таймера
+async def get_q1_data_with_timer(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager:
+        # Проверяем, не запущен ли уже таймер
+        if not dialog_manager.dialog_data.get("general_q1_timer_started"):
+            logger.debug("🔧 DEBUG: Запуск таймера для вопроса 1 из геттера")
+            dialog_manager.dialog_data["general_q1_timer_started"] = True
+            await start_timer_background(dialog_manager, "general_q1", 180, on_q1_timeout_bg)
+    return {"question_text": GENERAL_QUESTIONS[1]["text"]}
+
+async def get_q2_data_with_timer(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager:
+        if not dialog_manager.dialog_data.get("general_q2_timer_started"):
+            logger.debug("🔧 DEBUG: Запуск таймера для вопроса 2 из геттера")
+            dialog_manager.dialog_data["general_q2_timer_started"] = True
+            await start_timer_background(dialog_manager, "general_q2", 30, on_q2_timeout_bg)
+    return {"question_text": GENERAL_QUESTIONS[2]["text"]}
+
+async def get_q3_data_with_timer(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager:
+        if not dialog_manager.dialog_data.get("general_q3_timer_started"):
+            logger.debug("🔧 DEBUG: Запуск таймера для вопроса 3 из геттера")
+            dialog_manager.dialog_data["general_q3_timer_started"] = True
+            await start_timer_background(dialog_manager, "general_q3", 15, on_q3_timeout_bg)
+    return {"question_text": GENERAL_QUESTIONS[3]["text"]}
+
+async def get_q4_data_with_timer(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager:
+        if not dialog_manager.dialog_data.get("general_q4_timer_started"):
+            logger.debug("🔧 DEBUG: Запуск таймера для вопроса 4 из геттера")
+            dialog_manager.dialog_data["general_q4_timer_started"] = True
+            await start_timer_background(dialog_manager, "general_q4", 15, on_q4_timeout_bg)
+    return {"question_text": GENERAL_QUESTIONS[4]["text"]}
+
+async def get_q5_data_with_timer(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager:
+        if not dialog_manager.dialog_data.get("general_q5_timer_started"):
+            logger.debug("🔧 DEBUG: Запуск таймера для вопроса 5 из геттера")
+            dialog_manager.dialog_data["general_q5_timer_started"] = True
+            await start_timer_background(dialog_manager, "general_q5", 90, on_q5_timeout_bg)
+    return {"question_text": GENERAL_QUESTIONS[5]["text"]}
+
+async def get_q6_data_with_timer(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager:
+        if not dialog_manager.dialog_data.get("general_q6_timer_started"):
+            logger.debug("🔧 DEBUG: Запуск таймера для вопроса 6 из геттера")
+            dialog_manager.dialog_data["general_q6_timer_started"] = True
+            await start_timer_background(dialog_manager, "general_q6", 30, on_q6_timeout_bg)
+    return {"question_text": GENERAL_QUESTIONS[6]["text"]}
+
+async def get_q1_data(**kwargs):
+    return {"question_text": GENERAL_QUESTIONS[1]["text"]}
+
+async def get_q2_data(**kwargs):
+    return {"question_text": GENERAL_QUESTIONS[2]["text"]}
+
+async def get_q3_data(**kwargs):
+    return {"question_text": GENERAL_QUESTIONS[3]["text"]}
+
+async def get_q4_data(**kwargs):
+    return {"question_text": GENERAL_QUESTIONS[4]["text"]}
+
+async def get_q5_data(**kwargs):
+    return {"question_text": GENERAL_QUESTIONS[5]["text"]}
+
+async def get_q6_data(**kwargs):
+    return {"question_text": GENERAL_QUESTIONS[6]["text"]}
 
 
 # Данные вопросов
@@ -56,130 +144,168 @@ GENERAL_QUESTIONS = {
 }
 
 
-async def save_answer_and_proceed(dialog_manager: DialogManager, question_num: int, answer: str):
-    """Сохранить ответ и перейти к следующему вопросу"""
+async def save_answer_and_proceed_from_input(dialog_manager: DialogManager, question_num: int, answer_text: str):
+    """Сохранение ответа из текстового ввода и переход к следующему вопросу"""
     try:
-        # Останавливаем таймер
+        logger.info(f"Saving input answer for question {question_num}: {answer_text}")
+        
+        # Останавливаем текущий таймер
         timer_key = f"general_q{question_num}"
-        await stop_timer(dialog_manager, timer_key)
+        await stop_active_timer(timer_key)
+        dialog_manager.dialog_data[f"{timer_key}_stopped"] = True
         
-        # Вычисляем время ответа
-        time_taken = calculate_time_taken(dialog_manager, timer_key)
-        
-        # Сохраняем ответ в dialog_data
-        dialog_manager.dialog_data[f"general_q{question_num}_answer"] = answer
-        dialog_manager.dialog_data[f"general_q{question_num}_time_taken"] = time_taken
-        
-        # Сохраняем в БД
+        # Получаем зависимости из middleware_data
         db: Database = dialog_manager.middleware_data.get("db")
-        if db:
-            user_id = dialog_manager.event.from_user.id
-            async with db.session() as session:
-                stage2_repo = Stage2Repository(session)
-                user_repo = UserRepository(session)
-                
-                # Получаем пользователя
-                user = await user_repo.get_user_by_telegram_id(user_id)
-                if user:
-                    await stage2_repo.save_general_answer(user.id, question_num, answer, time_taken)
+        if not db:
+            logger.error("Database not found in middleware_data")
+            return
         
-        logger.info(f"Saved answer for general question {question_num}, time: {time_taken}s")
+        user_id = dialog_manager.dialog_data.get("user_id")
+        
+        # Сохраняем ответ в базу данных
+        session = await db.get_session()
+        try:
+            # Используем Stage2Repository для сохранения общих ответов
+            stage2_repo = Stage2Repository(session)
+            await stage2_repo.save_general_answer(user_id, question_num, answer_text, time_taken=0)
+            logger.info(f"Successfully saved general answer {question_num}: {answer_text}")
+        finally:
+            await session.close()
         
         # Переходим к следующему вопросу
-        await dialog_manager.next()
+        if question_num < 6:
+            next_state = getattr(TestingSG, f"general_q{question_num + 1}")
+            await dialog_manager.switch_to(next_state)
+        else:
+            # Последний вопрос - переходим к завершению
+            await dialog_manager.switch_to(TestingSG.department_selection)
+            
+    except Exception as e:
+        logger.error(f"Error saving input answer for question {question_num}: {e}")
+
+
+async def save_answer_and_proceed(
+    event,  # Can be CallbackQuery or Message
+    widget,
+    dialog_manager: DialogManager,
+    data: dict,
+    db: Database,
+    config: Config,
+    **kwargs
+):
+    """Сохранение ответа и переход к следующему вопросу"""
+    try:
+        logger.info(f"Saving answer for question {data['question']}: {data}")
         
+        user_id = dialog_manager.dialog_data.get("user_id")
+        question_num = data["question"]
+        answer_value = data["answer"]
+        
+        # Останавливаем текущий таймер
+        timer_key = f"general_q{question_num}"
+        await stop_active_timer(timer_key)
+        dialog_manager.dialog_data[f"{timer_key}_stopped"] = True
+        
+        # Сохраняем ответ в базу данных
+        session = await db.get_session()
+        try:
+            # Используем Stage2Repository для сохранения общих ответов
+            stage2_repo = Stage2Repository(session)
+            await stage2_repo.save_general_answer(user_id, question_num, answer_value, time_taken=0)
+            logger.info(f"Successfully saved general answer {question_num}: {answer_value}")
+        finally:
+            await session.close()
+        
+        # Переходим к следующему вопросу
+        if question_num < 6:
+            next_state = getattr(TestingSG, f"general_q{question_num + 1}")
+            await dialog_manager.switch_to(next_state)
+        else:
+            # Последний вопрос - переходим к завершению
+            await dialog_manager.switch_to(TestingSG.department_selection)
+            
     except Exception as e:
         logger.error(f"Error saving answer for question {question_num}: {e}")
-        await dialog_manager.event.answer("Произошла ошибка. Попробуйте еще раз.")
+        # Handle both CallbackQuery and Message
+        if hasattr(event, 'answer'):
+            await event.answer("❌ Ошибка при сохранении ответа")
 
 
 # Обработчики ввода для каждого вопроса
 async def on_q1_input(message: Message, widget, dialog_manager: DialogManager, text: str):
-    await save_answer_and_proceed(dialog_manager, 1, text)
+    await save_answer_and_proceed_from_input(dialog_manager, 1, text)
 
 async def on_q2_input(message: Message, widget, dialog_manager: DialogManager, text: str):
-    await save_answer_and_proceed(dialog_manager, 2, text)
+    await save_answer_and_proceed_from_input(dialog_manager, 2, text)
 
 async def on_q3_input(message: Message, widget, dialog_manager: DialogManager, text: str):
-    await save_answer_and_proceed(dialog_manager, 3, text)
+    await save_answer_and_proceed_from_input(dialog_manager, 3, text)
 
 async def on_q4_input(message: Message, widget, dialog_manager: DialogManager, text: str):
-    await save_answer_and_proceed(dialog_manager, 4, text)
+    await save_answer_and_proceed_from_input(dialog_manager, 4, text)
 
 async def on_q5_input(message: Message, widget, dialog_manager: DialogManager, text: str):
-    await save_answer_and_proceed(dialog_manager, 5, text)
+    await save_answer_and_proceed_from_input(dialog_manager, 5, text)
 
 async def on_q6_input(message: Message, widget, dialog_manager: DialogManager, text: str):
-    await save_answer_and_proceed(dialog_manager, 6, text)
+    await save_answer_and_proceed_from_input(dialog_manager, 6, text)
 
 
 # Обработчики таймаута для background manager
 async def on_q1_timeout_bg(bg_manager, timer_key: str):
-    await bg_manager.update({
-        "general_q1_answer": "",
-        "general_q1_time_taken": 180,
-        "general_q1_timeout": True,
-    })
-    await bg_manager.next()
+    logger.debug(f"🔧 DEBUG: Таймаут для вопроса 1, переход к следующему вопросу")
+    from bot.states import TestingSG
+    await bg_manager.switch_to(TestingSG.general_q2)
 
 async def on_q2_timeout_bg(bg_manager, timer_key: str):
-    await bg_manager.update({
-        "general_q2_answer": "",
-        "general_q2_time_taken": 30,
-        "general_q2_timeout": True,
-    })
-    await bg_manager.next()
+    logger.debug(f"🔧 DEBUG: Таймаут для вопроса 2, переход к следующему вопросу")
+    from bot.states import TestingSG
+    await bg_manager.switch_to(TestingSG.general_q3)
 
 async def on_q3_timeout_bg(bg_manager, timer_key: str):
-    await bg_manager.update({
-        "general_q3_answer": "",
-        "general_q3_time_taken": 15,
-        "general_q3_timeout": True,
-    })
-    await bg_manager.next()
+    logger.debug(f"🔧 DEBUG: Таймаут для вопроса 3, переход к следующему вопросу")
+    from bot.states import TestingSG
+    await bg_manager.switch_to(TestingSG.general_q4)
 
 async def on_q4_timeout_bg(bg_manager, timer_key: str):
-    await bg_manager.update({
-        "general_q4_answer": "",
-        "general_q4_time_taken": 15,
-        "general_q4_timeout": True,
-    })
-    await bg_manager.next()
+    logger.debug(f"🔧 DEBUG: Таймаут для вопроса 4, переход к следующему вопросу")
+    from bot.states import TestingSG
+    await bg_manager.switch_to(TestingSG.general_q5)
 
 async def on_q5_timeout_bg(bg_manager, timer_key: str):
-    await bg_manager.update({
-        "general_q5_answer": "",
-        "general_q5_time_taken": 90,
-        "general_q5_timeout": True,
-    })
-    await bg_manager.next()
+    logger.debug(f"🔧 DEBUG: Таймаут для вопроса 5, переход к следующему вопросу")
+    from bot.states import TestingSG
+    await bg_manager.switch_to(TestingSG.general_q6)
 
 async def on_q6_timeout_bg(bg_manager, timer_key: str):
-    await bg_manager.update({
-        "general_q6_answer": "",
-        "general_q6_time_taken": 30,
-        "general_q6_timeout": True,
-    })
-    await bg_manager.next()
+    logger.debug(f"🔧 DEBUG: Таймаут для вопроса 6, переход к выбору отдела")
+    from bot.states import TestingSG
+    await bg_manager.switch_to(TestingSG.department_selection)
 
 
 # Функции запуска таймеров
 async def start_timer_q1(dialog_manager: DialogManager, **kwargs):
+    logger.debug("🔧 DEBUG: Запуск таймера для вопроса 1")
     await start_timer_background(dialog_manager, "general_q1", 180, on_q1_timeout_bg)
 
 async def start_timer_q2(dialog_manager: DialogManager, **kwargs):
+    logger.debug("🔧 DEBUG: Запуск таймера для вопроса 2")
     await start_timer_background(dialog_manager, "general_q2", 30, on_q2_timeout_bg)
 
 async def start_timer_q3(dialog_manager: DialogManager, **kwargs):
+    logger.debug("🔧 DEBUG: Запуск таймера для вопроса 3")
     await start_timer_background(dialog_manager, "general_q3", 15, on_q3_timeout_bg)
 
 async def start_timer_q4(dialog_manager: DialogManager, **kwargs):
+    logger.debug("🔧 DEBUG: Запуск таймера для вопроса 4")
     await start_timer_background(dialog_manager, "general_q4", 15, on_q4_timeout_bg)
 
 async def start_timer_q5(dialog_manager: DialogManager, **kwargs):
+    logger.debug("🔧 DEBUG: Запуск таймера для вопроса 5")
     await start_timer_background(dialog_manager, "general_q5", 90, on_q5_timeout_bg)
 
 async def start_timer_q6(dialog_manager: DialogManager, **kwargs):
+    logger.debug("🔧 DEBUG: Запуск таймера для вопроса 6")
     await start_timer_background(dialog_manager, "general_q6", 30, on_q6_timeout_bg)
 
 
@@ -336,10 +462,9 @@ general_testing_dialog = Dialog(
         ),
         state=TestingSG.general_q1,
         getter=[
-            lambda **kwargs: {"question_text": GENERAL_QUESTIONS[1]["text"]},
+            get_q1_data_with_timer,
             get_timer_progress_data("general_q1")
         ],
-        on_process_result=start_timer_q1,
     ),
     
     # Вопрос 2 (30 секунд)
@@ -354,10 +479,9 @@ general_testing_dialog = Dialog(
         ),
         state=TestingSG.general_q2,
         getter=[
-            lambda **kwargs: {"question_text": GENERAL_QUESTIONS[2]["text"]},
+            get_q2_data_with_timer,
             get_timer_progress_data("general_q2")
         ],
-        on_process_result=start_timer_q2,
     ),
     
     # Вопрос 3 (15 секунд)
@@ -372,10 +496,9 @@ general_testing_dialog = Dialog(
         ),
         state=TestingSG.general_q3,
         getter=[
-            lambda **kwargs: {"question_text": GENERAL_QUESTIONS[3]["text"]},
+            get_q3_data_with_timer,
             get_timer_progress_data("general_q3")
         ],
-        on_process_result=start_timer_q3,
     ),
     
     # Вопрос 4 (15 секунд)
@@ -390,10 +513,9 @@ general_testing_dialog = Dialog(
         ),
         state=TestingSG.general_q4,
         getter=[
-            lambda **kwargs: {"question_text": GENERAL_QUESTIONS[4]["text"]},
+            get_q4_data_with_timer,
             get_timer_progress_data("general_q4")
         ],
-        on_process_result=start_timer_q4,
     ),
     
     # Вопрос 5 (90 секунд) - с картинкой
@@ -409,10 +531,9 @@ general_testing_dialog = Dialog(
         ),
         state=TestingSG.general_q5,
         getter=[
-            lambda **kwargs: {"question_text": GENERAL_QUESTIONS[5]["text"]},
+            get_q5_data_with_timer,
             get_timer_progress_data("general_q5")
         ],
-        on_process_result=start_timer_q5,
     ),
     
     # Вопрос 6 (30 секунд) - с картинкой
@@ -428,10 +549,9 @@ general_testing_dialog = Dialog(
         ),
         state=TestingSG.general_q6,
         getter=[
-            lambda **kwargs: {"question_text": GENERAL_QUESTIONS[6]["text"]},
+            get_q6_data_with_timer,
             get_timer_progress_data("general_q6")
         ],
-        on_process_result=start_timer_q6,
     ),
     
     # Промежуточное окно

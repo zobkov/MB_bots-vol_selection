@@ -50,6 +50,13 @@ class LoggingMiddleware(BaseMiddleware):
             result = await handler(event, data)
             return result
         except Exception as e:
+            # Проверяем, не заблокировал ли пользователь бота
+            if "bot was blocked by the user" in str(e):
+                # Логируем просто как информацию, без stacktrace
+                user_id = user.id if user else "unknown"
+                logging.getLogger(__name__).info(f"USER:{user_id} - Пользователь заблокировал бота")
+                return  # Не поднимаем исключение дальше
+            
             user_id = user.id if user else None
             handler_name = getattr(handler, '__name__', str(handler))
             log_error(e, f"Ошибка в обработчике {handler_name}", user_id)
