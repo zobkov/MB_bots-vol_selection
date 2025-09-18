@@ -76,7 +76,7 @@ menu_dialog = Dialog(
         Start(
             Const("📝 Перейтки ко второму этапу"),
             id="fill_application",
-            state=TestingSG.start
+            state=Stage2SG.start
         ),
         SwitchTo(
             Const("📞 Поддержка"),

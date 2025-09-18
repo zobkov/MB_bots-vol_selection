@@ -12,6 +12,7 @@ from bot.states import ProgramTestSG, TestingSG
 from bot.dialogs.timer_utils import timer_manager, get_timer_progress_data, create_timer_display, calculate_time_taken
 from database.repositories import UserRepository, DepartmentTestRepository
 from database.db import Database
+from bot.dialogs.checkpoint_utils import save_department_completion_checkpoint_with_session
 import logging
 
 logger = logging.getLogger(__name__)
@@ -79,7 +80,8 @@ async def save_program_answer_and_proceed(dialog_manager: DialogManager, questio
         db: Database = dialog_manager.middleware_data.get("db")
         if db:
             user_id = dialog_manager.event.from_user.id
-            async with db.session() as session:
+            session = await db.get_session()
+            try:
                 dept_repo = DepartmentTestRepository(session)
                 user_repo = UserRepository(session)
                 
@@ -100,6 +102,8 @@ async def save_program_answer_and_proceed(dialog_manager: DialogManager, questio
                         time_taken,
                         is_timeout
                     )
+            finally:
+                await session.close()
         
         logger.info(f"Saved program answer for question {question_num}, time: {time_taken}s")
         
@@ -110,12 +114,17 @@ async def save_program_answer_and_proceed(dialog_manager: DialogManager, questio
             # Отмечаем тест как завершенный
             if db:
                 user_id = dialog_manager.event.from_user.id
-                async with db.session() as session:
+                session = await db.get_session()
+                try:
                     dept_repo = DepartmentTestRepository(session)
                     user_repo = UserRepository(session)
                     user = await user_repo.get_user_by_telegram_id(user_id)
                     if user:
                         await dept_repo.complete_test(user.id, "program")
+                        # Save checkpoint after completing all program questions
+                        await save_department_completion_checkpoint_with_session(user.id, "program", session)
+                finally:
+                    await session.close()
             
             await dialog_manager.switch_to(ProgramTestSG.completed)
         

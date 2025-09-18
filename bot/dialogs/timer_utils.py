@@ -5,7 +5,7 @@ import asyncio
 import logging
 from typing import Dict, Any, Optional
 from datetime import datetime
-from aiogram_dialog import DialogManager, BaseDialogManager
+from aiogram_dialog import DialogManager, BaseDialogManager, StartMode
 from aiogram_dialog.widgets.text import Format, Const, Progress
 from aiogram_dialog.widgets.kbd import Button
 
@@ -23,6 +23,56 @@ async def stop_active_timer(timer_key: str):
             task.cancel()
             logger.info(f"Timer cancelled: {timer_key}")
         del active_timers[timer_key]
+
+
+async def stop_all_user_timers(user_id: int):
+    """Остановить все активные таймеры пользователя"""
+    user_timer_keys = []
+    
+    # Собираем все ключи таймеров пользователя
+    for timer_key in list(active_timers.keys()):
+        # Предполагаем, что ключи таймеров содержат информацию о пользователе
+        # Например: "general_q1_123456789" или "logistics_q2_123456789"
+        if str(user_id) in timer_key:
+            user_timer_keys.append(timer_key)
+    
+    # Останавливаем найденные таймеры
+    for timer_key in user_timer_keys:
+        await stop_active_timer(timer_key)
+    
+    if user_timer_keys:
+        logger.info(f"Stopped {len(user_timer_keys)} timers for user {user_id}: {user_timer_keys}")
+    else:
+        logger.debug(f"No active timers found for user {user_id}")
+
+
+async def stop_all_user_timers_simple():
+    """Остановить все активные таймеры (простая версия для случаев без user_id)"""
+    timer_keys_to_stop = list(active_timers.keys())
+    
+    for timer_key in timer_keys_to_stop:
+        await stop_active_timer(timer_key)
+    
+    if timer_keys_to_stop:
+        logger.info(f"Stopped all active timers: {timer_keys_to_stop}")
+    else:
+        logger.debug("No active timers to stop")
+
+
+async def cancel_dialog_with_timers(callback, button, dialog_manager: DialogManager):
+    """Кастомный обработчик отмены диалога с остановкой таймеров"""
+    try:
+        # Останавливаем все таймеры (простая версия)
+        await stop_all_user_timers_simple()
+        
+        # Возвращаемся в главное меню
+        from bot.states import MenuSG
+        await dialog_manager.start(MenuSG.main, mode=StartMode.RESET_STACK)
+        
+    except Exception as e:
+        logger.error(f"Error in cancel_dialog_with_timers: {e}")
+        # Fallback: просто закрываем диалог
+        await dialog_manager.done()
 
 
 async def start_timer_background(dialog_manager: DialogManager, timer_key: str, 
@@ -60,22 +110,29 @@ async def timer_countdown_bg(bg_manager: BaseDialogManager, timer_key: str,
     try:
         logger.debug(f"🔧 DEBUG: Начинаю обратный отсчет для {timer_key}, duration={duration}")
         
-        # Обновляем прогресс каждую секунду
-        for remaining in range(duration, 0, -1):
-            await asyncio.sleep(1)
+        # Обновляем прогресс каждые 2 секунды, чтобы избежать flood control
+        for remaining in range(duration, 0, -2):
+            await asyncio.sleep(2)
+            
+            # Проверяем, что остается время
+            actual_remaining = max(0, remaining - 1)  # Учитываем что прошла еще одна секунда
             
             # Вычисляем прогресс (от 100 до 0)
-            progress = (remaining / duration) * 100
+            progress = (actual_remaining / duration) * 100
             
-            logger.debug(f"🔧 DEBUG: {timer_key} remaining={remaining}, progress={progress:.1f}%")
+            logger.debug(f"🔧 DEBUG: {timer_key} remaining={actual_remaining}, progress={progress:.1f}%")
             
             # Обновляем данные через background manager
             await bg_manager.update({
-                f"{timer_key}_remaining": remaining,
+                f"{timer_key}_remaining": actual_remaining,
                 f"{timer_key}_progress": progress,
-                f"{timer_key}_minutes": remaining // 60,
-                f"{timer_key}_seconds": remaining % 60,
+                f"{timer_key}_minutes": actual_remaining // 60,
+                f"{timer_key}_seconds": actual_remaining % 60,
             })
+            
+            # Останавливаемся, если время истекло
+            if actual_remaining <= 0:
+                break
         
         # Время истекло
         logger.debug(f"🔧 DEBUG: {timer_key} - время истекло!")
@@ -133,11 +190,17 @@ def get_timer_progress_data(timer_key: str):
                 "general_q4": 15,
                 "general_q5": 90,
                 "general_q6": 30,
+                "logistics_q1": 60,
+                "logistics_q2": 90,
+                "logistics_q3": 120,
+                "logistics_q4": 60,
+                "logistics_q5": 90,
+                "logistics_q6": 60,
             }
             default_duration = timer_durations.get(timer_key, duration)
             remaining = default_duration
             duration = default_duration
-            progress = 100.0
+            progress = 100.0  # Таймер еще не начался - 100% (обратный отсчет)
             minutes = remaining // 60
             seconds = remaining % 60
         

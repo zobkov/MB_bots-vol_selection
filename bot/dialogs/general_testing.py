@@ -14,8 +14,10 @@ from bot.dialogs.timer_utils import (
     get_timer_progress_data,
     stop_timer,
     create_timer_display,
-    stop_active_timer
+    stop_active_timer,
+    cancel_dialog_with_timers
 )
+from bot.dialogs.checkpoint_utils import save_general_questions_completion_checkpoint
 
 # Функция для сохранения всех ответов общего тестирования
 from database.repositories import UserRepository, Stage2Repository
@@ -177,7 +179,9 @@ async def save_answer_and_proceed_from_input(dialog_manager: DialogManager, ques
             next_state = getattr(TestingSG, f"general_q{question_num + 1}")
             await dialog_manager.switch_to(next_state)
         else:
-            # Последний вопрос - переходим к завершению
+            # Последний вопрос - сохраняем чекпоинт завершения общих вопросов
+            await save_general_questions_completion_checkpoint(dialog_manager)
+            # Переходим к завершению
             await dialog_manager.switch_to(TestingSG.department_selection)
             
     except Exception as e:
@@ -221,7 +225,9 @@ async def save_answer_and_proceed(
             next_state = getattr(TestingSG, f"general_q{question_num + 1}")
             await dialog_manager.switch_to(next_state)
         else:
-            # Последний вопрос - переходим к завершению
+            # Последний вопрос - сохраняем чекпоинт завершения общих вопросов
+            await save_general_questions_completion_checkpoint(dialog_manager)
+            # Переходим к завершению
             await dialog_manager.switch_to(TestingSG.department_selection)
             
     except Exception as e:
@@ -317,13 +323,16 @@ async def on_to_departments(callback: CallbackQuery, button: Button, dialog_mana
         db: Database = dialog_manager.middleware_data.get("db")
         if db:
             user_id = callback.from_user.id
-            async with db.session() as session:
+            session = await db.get_session()
+            try:
                 stage2_repo = Stage2Repository(session)
                 user_repo = UserRepository(session)
                 
                 user = await user_repo.get_user_by_telegram_id(user_id)
                 if user:
                     await stage2_repo.mark_general_questions_completed(user.id)
+            finally:
+                await session.close()
         
         await dialog_manager.switch_to(TestingSG.department_selection)
         
@@ -360,7 +369,8 @@ async def get_department_status(dialog_manager: DialogManager, **kwargs):
         
         user_id = dialog_manager.event.from_user.id
         
-        async with db.session() as session:
+        session = await db.get_session()
+        try:
             from database.repositories import DepartmentTestRepository, UserRepository
             dept_repo = DepartmentTestRepository(session)
             user_repo = UserRepository(session)
@@ -411,6 +421,8 @@ async def get_department_status(dialog_manager: DialogManager, **kwargs):
                 result["completed_departments"] = ""
             
             return result
+        finally:
+            await session.close()
             
     except Exception as e:
         logger.error(f"Error getting department status: {e}")
@@ -446,7 +458,11 @@ general_testing_dialog = Dialog(
             id="start_questions",
             on_click=lambda c, b, dm: dm.next()
         ),
-        Cancel(Const("❌ Отмена")),
+        Button(
+            Const("❌ Отмена"),
+            id="cancel_testing",
+            on_click=cancel_dialog_with_timers
+        ),
         state=TestingSG.start,
     ),
     

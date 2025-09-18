@@ -1,13 +1,15 @@
 from aiogram import types
 from aiogram.types import CallbackQuery, ContentType, Message
 from aiogram_dialog import Dialog, DialogManager, Window, StartMode, ShowMode
-from aiogram_dialog.widgets.kbd import Button, Start, Group, Select, Back, Next, SwitchTo, Cancel, Radio, Column
+from aiogram_dialog.widgets.kbd import Button, Start, Group, Select, Back, Next, SwitchTo, Cancel, Radio, Column, Multiselect
 from aiogram_dialog.widgets.text import Const, Format
 from aiogram_dialog.widgets.input import TextInput, MessageInput
 
 from bot.states import DepartmentSelectionSG, ApplicationSG, MenuSG, Stage2SG, TestingSG
 from database.repositories import UserRepository, ApplicationRepository
 from database.db import Database
+from bot.dialogs.checkpoint_utils import save_stage2_completion_checkpoint
+from bot.dialogs.timer_utils import cancel_dialog_with_timers
 import re
 import logging
 
@@ -37,55 +39,31 @@ async def get_time_options(dialog_manager: DialogManager, **kwargs):
 
 
 # Обработчики выбора
-async def on_days_selected(callback: CallbackQuery, widget, dialog_manager: DialogManager, item_id: str):
-    """Обработка выбора количества дней"""
-    dialog_manager.dialog_data["participation_days"] = item_id
-    await dialog_manager.next()
+async def on_days_selected(callback: CallbackQuery, widget, dialog_manager: DialogManager, data):
+    """Обработка выбора количества дней (Radio)"""
+    # data содержит выбранный элемент (строка)
+    dialog_manager.dialog_data["participation_days"] = data
+    logger.info(f"Selected days: {data}")
 
 
-async def on_time_selected(callback: CallbackQuery, widget, dialog_manager: DialogManager, item_id: str):
-    """Обработка выбора времени участия"""
-    dialog_manager.dialog_data["participation_time"] = item_id
-    await dialog_manager.next()
+async def on_time_selected(callback: CallbackQuery, widget, dialog_manager: DialogManager, data):
+    """Обработка выбора времени участия (Radio)"""
+    # data содержит выбранный элемент (строка)
+    dialog_manager.dialog_data["participation_time"] = data
+    logger.info(f"Selected time: {data}")
 
 
-# Обработчик перехода к следующему этапу
-async def on_next_clicked(callback: CallbackQuery, button: Button, dialog_manager: DialogManager):
-    """Обработка перехода к следующему окну"""
-    await dialog_manager.next()
-
-
-# Обработчик начала тестирования
+# Обработчик начала тестирования с финальным сохранением данных stage_2
 async def on_start_testing(callback: CallbackQuery, button: Button, dialog_manager: DialogManager):
-    """Обработка начала тестирования"""
+    """Обработка начала тестирования с финальным сохранением данных"""
     try:
-        # Сохраняем данные второго этапа в базу данных
-        user_id = callback.from_user.id
-        db: Database = dialog_manager.middleware_data.get("db")
+        participation_data = {
+            "days": dialog_manager.dialog_data.get("participation_days", ""),  # строка для Radio
+            "time": dialog_manager.dialog_data.get("participation_time", "")  # строка для Radio
+        }
         
-        if db:
-            participation_data = {
-                "days": dialog_manager.dialog_data.get("participation_days"),
-                "time": dialog_manager.dialog_data.get("participation_time")
-            }
-            
-            # Сохраняем данные участия
-            async with db.session() as session:
-                from database.repositories import Stage2Repository, UserRepository
-                stage2_repo = Stage2Repository(session)
-                user_repo = UserRepository(session)
-                
-                user = await user_repo.get_user_by_telegram_id(user_id)
-                if user:
-                    await stage2_repo.get_or_create_stage2_record(user.id)
-                    await stage2_repo.update_participation_data(
-                        user.id, 
-                        participation_data["days"], 
-                        participation_data["time"]
-                    )
-                    await stage2_repo.mark_general_questions_started(user.id)
-            
-            logger.info(f"Сохранение данных участия для пользователя {user_id}: {participation_data}")
+        # Финальное сохранение данных участия через checkpoint
+        await save_stage2_completion_checkpoint(dialog_manager, participation_data)
         
         # Переходим к общему тестированию
         await dialog_manager.start(TestingSG.start, mode=StartMode.RESET_STACK)
@@ -99,7 +77,7 @@ stage2_dialog = Dialog(
     # Окно 1: Приветствие второго этапа
     Window(
         Format("Привет еще раз! Теперь мы начинаем второй этап отбора. Для начала надо будет ответить на пару вопросов."),
-        Next(Format("➡️ Перейти далее"), id="stage2_start_to_questions", on_click=on_next_clicked),
+        Next(Format("➡️ Перейти далее"), id="stage2_start_to_questions"),
         state=Stage2SG.start,
     ),
 
@@ -107,7 +85,8 @@ stage2_dialog = Dialog(
     Window(
         Format("Сколько дней ты сможешь участвовать на конференции?\n\n"
                "⚠️ Обрати внимание, что наш кампус находится по адресу:\n"
-               "📍 Санкт-Петербургское шоссе 109, г. Петергоф"),
+               "📍 Санкт-Петербургское шоссе 109, г. Петергоф\n\n"
+               "Выбери один вариант:"),
         Column(
             Radio(
                 Format("🔘 {item[text]}"),
@@ -115,10 +94,15 @@ stage2_dialog = Dialog(
                 id="days_radio",
                 item_id_getter=lambda item: item["id"],
                 items="days_options",
-                on_click=on_days_selected
+                on_state_changed=on_days_selected
             ),
         ),
-        Cancel(Const("❌ Отмена")),
+        Next(Format("➡️ Далее"), id="days_next"),
+        Button(
+            Const("❌ Отмена"),
+            id="cancel_stage2_days",
+            on_click=cancel_dialog_with_timers
+        ),
         state=Stage2SG.start_question_1,
         getter=get_days_options,
     ),
@@ -126,7 +110,8 @@ stage2_dialog = Dialog(
     # Окно 3: Вопрос о времени участия
     Window(
         Format("Сколько времени ты готов(а) помогать на конференции?\n\n"
-               "⚠️ <b>Важно:</b> тайминги условные, для каждого волонтера предусмотрено время отдыха."),
+               "⚠️ <b>Важно:</b> тайминги условные, для каждого волонтера предусмотрено время отдыха.\n\n"
+               "Выбери один вариант:"),
         Column(
             Radio(
                 Format("🔘 {item[text]}"),
@@ -134,10 +119,15 @@ stage2_dialog = Dialog(
                 id="time_radio",
                 item_id_getter=lambda item: item["id"],
                 items="time_options",
-                on_click=on_time_selected
+                on_state_changed=on_time_selected
             ),
         ),
-        Cancel(Const("❌ Отмена")),
+        Next(Format("➡️ Далее"), id="time_next"),
+        Button(
+            Const("❌ Отмена"),
+            id="cancel_stage2_time",
+            on_click=cancel_dialog_with_timers
+        ),
         state=Stage2SG.start_question_2,
         getter=get_time_options,
     ),
@@ -160,7 +150,11 @@ stage2_dialog = Dialog(
             state=TestingSG.start,
             on_click=on_start_testing
         ),
-        Cancel(Const("❌ Отмена")),
+        Button(
+            Const("❌ Отмена"),
+            id="cancel_stage2_final",
+            on_click=cancel_dialog_with_timers
+        ),
         state=Stage2SG.testing_start,
     ),
 )

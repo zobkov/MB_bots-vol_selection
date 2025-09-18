@@ -10,9 +10,10 @@ from aiogram_dialog.widgets.input import TextInput
 
 from bot.states import LogisticsTestSG, TestingSG
 from bot.dialogs.timer_utils import (
-    start_timer_background, get_timer_progress_data, create_timer_display, 
-    calculate_time_taken, stop_timer
+    start_timer_background, get_timer_progress_data, create_timer_display,
+    calculate_time_taken, stop_timer, cancel_dialog_with_timers
 )
+from bot.dialogs.checkpoint_utils import save_department_completion_checkpoint
 from database.repositories import UserRepository, DepartmentTestRepository
 from database.db import Database
 import logging
@@ -20,23 +21,77 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# Async геттеры для вопросов логистики
+# Async геттеры для вопросов логистики с запуском таймеров
 async def get_logistics_q1_data(**kwargs):
+    logger.debug(f"🔧 DEBUG: get_logistics_q1_data вызван с kwargs: {list(kwargs.keys())}")
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        current_state = dialog_manager.current_context().state
+        if current_state == LogisticsTestSG.q1:
+            # Проверяем, не запущен ли уже таймер
+            if not dialog_manager.dialog_data.get("logistics_q1_timer_started"):
+                logger.debug("🔧 DEBUG: Запуск таймера для логистики вопроса 1 из геттера")
+                dialog_manager.dialog_data["logistics_q1_timer_started"] = True
+                await start_timer_background(dialog_manager, "logistics_q1", 60, on_logistics_q1_timeout)
+        else:
+            logger.debug(f"🔧 DEBUG: Текущее состояние {current_state}, ожидаем {LogisticsTestSG.q1}")
+    else:
+        logger.debug("🔧 DEBUG: dialog_manager не найден или не имеет current_context")
     return {"question_text": LOGISTICS_QUESTIONS[1]["text"]}
 
 async def get_logistics_q2_data(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        current_state = dialog_manager.current_context().state
+        if current_state == LogisticsTestSG.q2:
+            if not dialog_manager.dialog_data.get("logistics_q2_timer_started"):
+                logger.debug("🔧 DEBUG: Запуск таймера для логистики вопроса 2 из геттера")
+                dialog_manager.dialog_data["logistics_q2_timer_started"] = True
+                await start_timer_background(dialog_manager, "logistics_q2", 90, on_logistics_q2_timeout)
     return {"question_text": LOGISTICS_QUESTIONS[2]["text"]}
 
 async def get_logistics_q3_data(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        current_state = dialog_manager.current_context().state
+        if current_state == LogisticsTestSG.q3:
+            if not dialog_manager.dialog_data.get("logistics_q3_timer_started"):
+                logger.debug("🔧 DEBUG: Запуск таймера для логистики вопроса 3 из геттера")
+                dialog_manager.dialog_data["logistics_q3_timer_started"] = True
+                await start_timer_background(dialog_manager, "logistics_q3", 120, on_logistics_q3_timeout)
     return {"question_text": LOGISTICS_QUESTIONS[3]["text"]}
 
 async def get_logistics_q4_data(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        current_state = dialog_manager.current_context().state
+        if current_state == LogisticsTestSG.q4:
+            if not dialog_manager.dialog_data.get("logistics_q4_timer_started"):
+                logger.debug("🔧 DEBUG: Запуск таймера для логистики вопроса 4 из геттера")
+                dialog_manager.dialog_data["logistics_q4_timer_started"] = True
+                await start_timer_background(dialog_manager, "logistics_q4", 60, on_logistics_q4_timeout)
     return {"question_text": LOGISTICS_QUESTIONS[4]["text"]}
 
 async def get_logistics_q5_data(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        current_state = dialog_manager.current_context().state
+        if current_state == LogisticsTestSG.q5:
+            if not dialog_manager.dialog_data.get("logistics_q5_timer_started"):
+                logger.debug("🔧 DEBUG: Запуск таймера для логистики вопроса 5 из геттера")
+                dialog_manager.dialog_data["logistics_q5_timer_started"] = True
+                await start_timer_background(dialog_manager, "logistics_q5", 90, on_logistics_q5_timeout)
     return {"question_text": LOGISTICS_QUESTIONS[5]["text"]}
 
 async def get_logistics_q6_data(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        current_state = dialog_manager.current_context().state
+        if current_state == LogisticsTestSG.q6:
+            if not dialog_manager.dialog_data.get("logistics_q6_timer_started"):
+                logger.debug("🔧 DEBUG: Запуск таймера для логистики вопроса 6 из геттера")
+                dialog_manager.dialog_data["logistics_q6_timer_started"] = True
+                await start_timer_background(dialog_manager, "logistics_q6", 60, on_logistics_q6_timeout)
     return {"question_text": LOGISTICS_QUESTIONS[6]["text"]}
 
 
@@ -73,10 +128,12 @@ LOGISTICS_QUESTIONS = {
 
 async def save_logistics_answer_and_proceed(dialog_manager: DialogManager, question_num: int, answer: str):
     """Сохранить ответ и перейти к следующему вопросу"""
+    logger.info(f"🔧 DEBUG: save_logistics_answer_and_proceed вызвана для вопроса {question_num} с ответом '{answer}'")
     try:
         # Останавливаем таймер
         timer_key = f"logistics_q{question_num}"
-        await timer_manager.stop_timer(timer_key)
+        await stop_timer(dialog_manager, timer_key)
+        logger.info(f"🔧 DEBUG: Таймер {timer_key} остановлен")
         
         # Вычисляем время ответа
         time_taken = calculate_time_taken(dialog_manager, timer_key)
@@ -86,7 +143,8 @@ async def save_logistics_answer_and_proceed(dialog_manager: DialogManager, quest
         db: Database = dialog_manager.middleware_data.get("db")
         if db:
             user_id = dialog_manager.event.from_user.id
-            async with db.session() as session:
+            session = await db.get_session()
+            try:
                 dept_repo = DepartmentTestRepository(session)
                 user_repo = UserRepository(session)
                 
@@ -116,6 +174,8 @@ async def save_logistics_answer_and_proceed(dialog_manager: DialogManager, quest
                         correct_answer,
                         is_correct
                     )
+            finally:
+                await session.close()
         
         logger.info(f"Saved logistics answer for question {question_num}, time: {time_taken}s")
         
@@ -123,16 +183,8 @@ async def save_logistics_answer_and_proceed(dialog_manager: DialogManager, quest
         if question_num < 6:
             await dialog_manager.next()
         else:
-            # Отмечаем тест как завершенный
-            if db:
-                user_id = dialog_manager.event.from_user.id
-                async with db.session() as session:
-                    dept_repo = DepartmentTestRepository(session)
-                    user_repo = UserRepository(session)
-                    user = await user_repo.get_user_by_telegram_id(user_id)
-                    if user:
-                        await dept_repo.complete_test(user.id, "logistics")
-            
+            # Последний вопрос - сохраняем чекпоинт завершения отдела
+            await save_department_completion_checkpoint(dialog_manager, "logistics")
             await dialog_manager.switch_to(LogisticsTestSG.completed)
         
     except Exception as e:
@@ -142,9 +194,11 @@ async def save_logistics_answer_and_proceed(dialog_manager: DialogManager, quest
 
 # Обработчики ввода для каждого вопроса
 async def on_logistics_q1_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.info(f"🔧 DEBUG: on_logistics_q1_input вызван с текстом: '{text}'")
     await save_logistics_answer_and_proceed(dialog_manager, 1, text)
 
 async def on_logistics_q2_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.info(f"🔧 DEBUG: on_logistics_q2_input вызван с текстом: '{text}'")
     await save_logistics_answer_and_proceed(dialog_manager, 2, text)
 
 async def on_logistics_q3_input(message: Message, widget, dialog_manager: DialogManager, text: str):
@@ -179,27 +233,6 @@ async def on_logistics_q5_timeout(dialog_manager: DialogManager, timer_key: str)
 async def on_logistics_q6_timeout(dialog_manager: DialogManager, timer_key: str):
     await save_logistics_answer_and_proceed(dialog_manager, 6, "")
 
-
-# Функции запуска таймеров
-async def start_logistics_timer_q1(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "logistics_q1", 90, on_logistics_q1_timeout)
-
-async def start_logistics_timer_q2(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "logistics_q2", 45, on_logistics_q2_timeout)
-
-async def start_logistics_timer_q3(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "logistics_q3", 90, on_logistics_q3_timeout)
-
-async def start_logistics_timer_q4(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "logistics_q4", 90, on_logistics_q4_timeout)
-
-async def start_logistics_timer_q5(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "logistics_q5", 120, on_logistics_q5_timeout)
-
-async def start_logistics_timer_q6(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "logistics_q6", 60, on_logistics_q6_timeout)
-
-
 # Обработчик возврата к выбору отделов
 async def on_back_to_departments(callback: CallbackQuery, button: Button, dialog_manager: DialogManager):
     """Возврат к выбору отделов"""
@@ -207,11 +240,11 @@ async def on_back_to_departments(callback: CallbackQuery, button: Button, dialog
 
 
 logistics_test_dialog = Dialog(
-    # Вопрос 1 (90 секунд)
+    # Вопрос 1 (60 секунд)
     Window(
         Format("🔧 <b>Логистика - Вопрос 1/6</b>\n\n"
                "{question_text}\n\n"
-               "(Время на ответ: 90 секунд)"),
+               "(Время на ответ: 60 секунд)"),
         *create_timer_display("logistics_q1"),
         TextInput(
             id="logistics_q1_input",
@@ -222,14 +255,13 @@ logistics_test_dialog = Dialog(
             get_logistics_q1_data,
             get_timer_progress_data("logistics_q1")
         ],
-        on_process_result=start_logistics_timer_q1,
     ),
     
-    # Вопрос 2 (45 секунд)
+    # Вопрос 2 (90 секунд)
     Window(
         Format("🔧 <b>Логистика - Вопрос 2/6</b>\n\n"
                "{question_text}\n\n"
-               "(Время на ответ: 45 секунд)"),
+               "(Время на ответ: 90 секунд)"),
         *create_timer_display("logistics_q2"),
         TextInput(
             id="logistics_q2_input",
@@ -240,14 +272,13 @@ logistics_test_dialog = Dialog(
             get_logistics_q2_data,
             get_timer_progress_data("logistics_q2")
         ],
-        on_process_result=start_logistics_timer_q2,
     ),
     
-    # Вопрос 3 (90 секунд)
+    # Вопрос 3 (120 секунд)
     Window(
         Format("🔧 <b>Логистика - Вопрос 3/6</b>\n\n"
                "{question_text}\n\n"
-               "(Время на ответ: 90 секунд)"),
+               "(Время на ответ: 120 секунд)"),
         *create_timer_display("logistics_q3"),
         TextInput(
             id="logistics_q3_input",
@@ -258,14 +289,13 @@ logistics_test_dialog = Dialog(
             get_logistics_q3_data,
             get_timer_progress_data("logistics_q3")
         ],
-        on_process_result=start_logistics_timer_q3,
     ),
     
-    # Вопрос 4 (90 секунд)
+    # Вопрос 4 (60 секунд)
     Window(
         Format("🔧 <b>Логистика - Вопрос 4/6</b>\n\n"
                "{question_text}\n\n"
-               "(Время на ответ: 90 секунд)"),
+               "(Время на ответ: 60 секунд)"),
         *create_timer_display("logistics_q4"),
         TextInput(
             id="logistics_q4_input",
@@ -276,14 +306,13 @@ logistics_test_dialog = Dialog(
             get_logistics_q4_data,
             get_timer_progress_data("logistics_q4")
         ],
-        on_process_result=start_logistics_timer_q4,
     ),
     
-    # Вопрос 5 (120 секунд)
+    # Вопрос 5 (90 секунд)
     Window(
         Format("🔧 <b>Логистика - Вопрос 5/6</b>\n\n"
                "{question_text}\n\n"
-               "(Время на ответ: 120 секунд)"),
+               "(Время на ответ: 90 секунд)"),
         *create_timer_display("logistics_q5"),
         TextInput(
             id="logistics_q5_input",
@@ -294,7 +323,6 @@ logistics_test_dialog = Dialog(
             get_logistics_q5_data,
             get_timer_progress_data("logistics_q5")
         ],
-        on_process_result=start_logistics_timer_q5,
     ),
     
     # Вопрос 6 (60 секунд)
@@ -312,7 +340,6 @@ logistics_test_dialog = Dialog(
             get_logistics_q6_data,
             get_timer_progress_data("logistics_q6")
         ],
-        on_process_result=start_logistics_timer_q6,
     ),
     
     # Завершение теста

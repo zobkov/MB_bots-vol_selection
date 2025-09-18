@@ -10,6 +10,7 @@ from aiogram_dialog.widgets.input import TextInput
 
 from bot.states import MarketingTestSG, TestingSG
 from bot.dialogs.timer_utils import timer_manager, get_timer_progress_data, create_timer_display, calculate_time_taken
+from bot.dialogs.checkpoint_utils import save_department_completion_checkpoint_with_session
 from database.repositories import UserRepository, DepartmentTestRepository
 from database.db import Database
 import logging
@@ -76,7 +77,8 @@ async def save_marketing_answer_and_proceed(dialog_manager: DialogManager, quest
         db: Database = dialog_manager.middleware_data.get("db")
         if db:
             user_id = dialog_manager.event.from_user.id
-            async with db.session() as session:
+            session = await db.get_session()
+            try:
                 dept_repo = DepartmentTestRepository(session)
                 user_repo = UserRepository(session)
                 
@@ -94,6 +96,8 @@ async def save_marketing_answer_and_proceed(dialog_manager: DialogManager, quest
                         time_taken,
                         is_timeout
                     )
+            finally:
+                await session.close()
         
         logger.info(f"Saved marketing answer for question {question_num}, time: {time_taken}s")
         
@@ -102,12 +106,17 @@ async def save_marketing_answer_and_proceed(dialog_manager: DialogManager, quest
         else:
             if db:
                 user_id = dialog_manager.event.from_user.id
-                async with db.session() as session:
+                session = await db.get_session()
+                try:
                     dept_repo = DepartmentTestRepository(session)
                     user_repo = UserRepository(session)
                     user = await user_repo.get_user_by_telegram_id(user_id)
                     if user:
                         await dept_repo.complete_test(user.id, "marketing")
+                        # Save checkpoint after completing all marketing questions
+                        await save_department_completion_checkpoint_with_session(user.id, "marketing", session)
+                finally:
+                    await session.close()
             
             await dialog_manager.switch_to(MarketingTestSG.completed)
         

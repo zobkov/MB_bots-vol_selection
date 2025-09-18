@@ -6,6 +6,7 @@ from aiogram_dialog import DialogManager, StartMode
 from bot.states import StartSG, MenuSG
 from database.repositories import UserRepository
 from database.db import Database
+from bot.dialogs.timer_utils import stop_all_user_timers_simple
 
 router = Router()
 
@@ -13,6 +14,9 @@ router = Router()
 @router.message(Command("start"))
 async def cmd_start(message: Message, dialog_manager: DialogManager):
     """Обработчик команды /start"""
+    # Останавливаем все активные таймеры (простая версия)
+    await stop_all_user_timers_simple()
+    
     # Получаем базу данных из middleware
     db: Database = dialog_manager.middleware_data.get("db")
     
@@ -33,6 +37,9 @@ async def cmd_start(message: Message, dialog_manager: DialogManager):
 @router.message(Command("menu"))
 async def cmd_menu(message: Message, dialog_manager: DialogManager):
     """Обработчик команды /menu"""
+    # Останавливаем все активные таймеры (простая версия)
+    await stop_all_user_timers_simple()
+    
     # Получаем базу данных из middleware
     db: Database = dialog_manager.middleware_data.get("db")
     

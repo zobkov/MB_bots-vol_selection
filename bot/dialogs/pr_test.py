@@ -12,6 +12,7 @@ from bot.states import PRTestSG, TestingSG
 from bot.dialogs.timer_utils import timer_manager, get_timer_progress_data, create_timer_display, calculate_time_taken
 from database.repositories import UserRepository, DepartmentTestRepository
 from database.db import Database
+from bot.dialogs.checkpoint_utils import save_department_completion_checkpoint_with_session
 import logging
 
 logger = logging.getLogger(__name__)
@@ -69,7 +70,8 @@ async def save_pr_answer_and_proceed(dialog_manager: DialogManager, question_num
         db: Database = dialog_manager.middleware_data.get("db")
         if db:
             user_id = dialog_manager.event.from_user.id
-            async with db.session() as session:
+            session = await db.get_session()
+            try:
                 dept_repo = DepartmentTestRepository(session)
                 user_repo = UserRepository(session)
                 
@@ -95,6 +97,8 @@ async def save_pr_answer_and_proceed(dialog_manager: DialogManager, question_num
                         correct_answer,
                         is_correct
                     )
+            finally:
+                await session.close()
         
         logger.info(f"Saved PR answer for question {question_num}, time: {time_taken}s")
         
@@ -103,12 +107,17 @@ async def save_pr_answer_and_proceed(dialog_manager: DialogManager, question_num
         else:
             if db:
                 user_id = dialog_manager.event.from_user.id
-                async with db.session() as session:
+                session = await db.get_session()
+                try:
                     dept_repo = DepartmentTestRepository(session)
                     user_repo = UserRepository(session)
                     user = await user_repo.get_user_by_telegram_id(user_id)
                     if user:
                         await dept_repo.complete_test(user.id, "pr")
+                        # Save checkpoint after completing all PR questions
+                        await save_department_completion_checkpoint_with_session(user.id, "pr", session)
+                finally:
+                    await session.close()
             
             await dialog_manager.switch_to(PRTestSG.completed)
         
