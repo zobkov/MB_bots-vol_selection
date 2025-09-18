@@ -6,7 +6,7 @@ from config.config import Config
 from database.repositories import UserRepository
 from database.db import Database
 
-from bot.states import MenuSG, ApplicationSG
+from bot.states import *
 
 
 async def get_menu_data(dialog_manager: DialogManager, **kwargs):
@@ -38,7 +38,7 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
     finally:
         await session.close()
     
-    menu_text = f"""🏠 Личный кабинет кандидата в команду волонтеров МБ 2025
+    menu_text = f"""🏠 Личный кабинет кандидата в команду волонтеров МБ 2025 - тест второго этапа
 
 📅 Текущий этап: {config.selection.stages['stage1']['name']}
 📝 Статус заявки: {status_text}\n{additional_info}
@@ -74,9 +74,9 @@ menu_dialog = Dialog(
     Window(
         Format("{menu_text}"),
         Start(
-            Const("📝 Заполнить анкету"),
+            Const("📝 Перейтки ко второму этапу"),
             id="fill_application",
-            state=ApplicationSG.full_name
+            state=TestingSG.start
         ),
         SwitchTo(
             Const("📞 Поддержка"),

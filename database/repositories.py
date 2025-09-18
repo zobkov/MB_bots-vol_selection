@@ -1,9 +1,10 @@
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from database.models import User, Application
-from typing import Optional
+from database.models import User, Application, Stage2Answer, DepartmentTestResult, DepartmentTestAnswer
+from typing import Optional, List
 from utils.logging_config import log_db_operation, log_error
 from utils.google_services import GoogleSheetsService
+from datetime import datetime
 import re
 
 
@@ -188,3 +189,242 @@ class ApplicationRepository:
             select(Application).where(Application.user_id == user_id)
         )
         return list(result.scalars().all())
+
+
+class Stage2Repository:
+    """Репозиторий для работы с данными второго этапа (общие вопросы)"""
+    
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_or_create_stage2_record(self, user_id: int) -> Stage2Answer:
+        """Получить или создать запись для второго этапа"""
+        try:
+            result = await self.session.execute(
+                select(Stage2Answer).where(Stage2Answer.user_id == user_id)
+            )
+            stage2_record = result.scalar_one_or_none()
+            
+            if stage2_record is None:
+                stage2_record = Stage2Answer(user_id=user_id)
+                self.session.add(stage2_record)
+                await self.session.commit()
+                await self.session.refresh(stage2_record)
+                log_db_operation("CREATE", "stage2_answers", "new stage2 record created", user_id)
+            
+            return stage2_record
+        except Exception as e:
+            log_error(e, "Ошибка при получении/создании записи stage2", user_id)
+            raise
+
+    async def update_participation_data(self, user_id: int, days: str, time: str):
+        """Обновить данные участия"""
+        try:
+            await self.session.execute(
+                update(Stage2Answer)
+                .where(Stage2Answer.user_id == user_id)
+                .values(participation_days=days, participation_time=time)
+            )
+            await self.session.commit()
+            log_db_operation("UPDATE", "stage2_answers", f"participation updated: {days} days, {time}", user_id)
+        except Exception as e:
+            log_error(e, "Ошибка при обновлении данных участия", user_id)
+            raise
+
+    async def save_general_answer(self, user_id: int, question_num: int, answer: str, time_taken: int):
+        """Сохранить ответ на общий вопрос"""
+        try:
+            update_data = {
+                f'general_q{question_num}_answer': answer,
+                f'general_q{question_num}_time_taken': time_taken
+            }
+            
+            await self.session.execute(
+                update(Stage2Answer)
+                .where(Stage2Answer.user_id == user_id)
+                .values(**update_data)
+            )
+            await self.session.commit()
+            log_db_operation("UPDATE", "stage2_answers", f"general question {question_num} answered", user_id)
+        except Exception as e:
+            log_error(e, f"Ошибка при сохранении ответа на вопрос {question_num}", user_id)
+            raise
+
+    async def mark_general_questions_started(self, user_id: int):
+        """Отметить начало прохождения общих вопросов"""
+        try:
+            await self.session.execute(
+                update(Stage2Answer)
+                .where(Stage2Answer.user_id == user_id)
+                .values(general_questions_started_at=datetime.now())
+            )
+            await self.session.commit()
+            log_db_operation("UPDATE", "stage2_answers", "general questions started", user_id)
+        except Exception as e:
+            log_error(e, "Ошибка при отметке начала общих вопросов", user_id)
+            raise
+
+    async def mark_general_questions_completed(self, user_id: int):
+        """Отметить завершение общих вопросов"""
+        try:
+            await self.session.execute(
+                update(Stage2Answer)
+                .where(Stage2Answer.user_id == user_id)
+                .values(
+                    general_questions_completed=True,
+                    general_questions_completed_at=datetime.now()
+                )
+            )
+            await self.session.commit()
+            log_db_operation("UPDATE", "stage2_answers", "general questions completed", user_id)
+        except Exception as e:
+            log_error(e, "Ошибка при отметке завершения общих вопросов", user_id)
+            raise
+
+    async def get_stage2_progress(self, user_id: int) -> Optional[Stage2Answer]:
+        """Получить прогресс прохождения второго этапа"""
+        result = await self.session.execute(
+            select(Stage2Answer).where(Stage2Answer.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+
+class DepartmentTestRepository:
+    """Репозиторий для работы с тестированием по отделам"""
+    
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_or_create_test_result(self, user_id: int, department: str) -> DepartmentTestResult:
+        """Получить или создать результат теста для отдела"""
+        try:
+            result = await self.session.execute(
+                select(DepartmentTestResult).where(
+                    DepartmentTestResult.user_id == user_id,
+                    DepartmentTestResult.department == department
+                )
+            )
+            test_result = result.scalar_one_or_none()
+            
+            if test_result is None:
+                test_result = DepartmentTestResult(
+                    user_id=user_id,
+                    department=department
+                )
+                self.session.add(test_result)
+                await self.session.commit()
+                await self.session.refresh(test_result)
+                log_db_operation("CREATE", "department_test_results", f"test result created for {department}", user_id)
+            
+            return test_result
+        except Exception as e:
+            log_error(e, f"Ошибка при получении/создании результата теста для {department}", user_id)
+            raise
+
+    async def start_test(self, user_id: int, department: str):
+        """Отметить начало тестирования отдела"""
+        try:
+            await self.session.execute(
+                update(DepartmentTestResult)
+                .where(
+                    DepartmentTestResult.user_id == user_id,
+                    DepartmentTestResult.department == department
+                )
+                .values(started_at=datetime.now())
+            )
+            await self.session.commit()
+            log_db_operation("UPDATE", "department_test_results", f"test started for {department}", user_id)
+        except Exception as e:
+            log_error(e, f"Ошибка при отметке начала теста {department}", user_id)
+            raise
+
+    async def complete_test(self, user_id: int, department: str):
+        """Отметить завершение тестирования отдела"""
+        try:
+            await self.session.execute(
+                update(DepartmentTestResult)
+                .where(
+                    DepartmentTestResult.user_id == user_id,
+                    DepartmentTestResult.department == department
+                )
+                .values(
+                    is_completed=True,
+                    completed_at=datetime.now()
+                )
+            )
+            await self.session.commit()
+            log_db_operation("UPDATE", "department_test_results", f"test completed for {department}", user_id)
+        except Exception as e:
+            log_error(e, f"Ошибка при отметке завершения теста {department}", user_id)
+            raise
+
+    async def save_answer(self, test_result_id: int, question_number: int, question_text: str, 
+                         answer_text: str, time_limit: int, time_taken: int, 
+                         is_timeout: bool = False, correct_answer: str = None, 
+                         is_correct: bool = None) -> DepartmentTestAnswer:
+        """Сохранить ответ на вопрос теста отдела"""
+        try:
+            answer = DepartmentTestAnswer(
+                test_result_id=test_result_id,
+                question_number=question_number,
+                question_text=question_text,
+                answer_text=answer_text,
+                time_limit=time_limit,
+                time_taken=time_taken,
+                is_timeout=is_timeout,
+                correct_answer=correct_answer,
+                is_correct=is_correct,
+                answered_at=datetime.now()
+            )
+            
+            self.session.add(answer)
+            await self.session.commit()
+            await self.session.refresh(answer)
+            
+            log_db_operation("CREATE", "department_test_answers", 
+                           f"answer saved for question {question_number}", test_result_id)
+            return answer
+        except Exception as e:
+            log_error(e, f"Ошибка при сохранении ответа на вопрос {question_number}")
+            raise
+
+    async def get_user_department_tests(self, user_id: int) -> List[DepartmentTestResult]:
+        """Получить все результаты тестов пользователя"""
+        result = await self.session.execute(
+            select(DepartmentTestResult).where(DepartmentTestResult.user_id == user_id)
+        )
+        return list(result.scalars().all())
+
+    async def get_test_with_answers(self, user_id: int, department: str) -> Optional[DepartmentTestResult]:
+        """Получить результат теста с ответами"""
+        result = await self.session.execute(
+            select(DepartmentTestResult)
+            .where(
+                DepartmentTestResult.user_id == user_id,
+                DepartmentTestResult.department == department
+            )
+        )
+        test_result = result.scalar_one_or_none()
+        
+        if test_result:
+            # Загружаем ответы
+            answers_result = await self.session.execute(
+                select(DepartmentTestAnswer)
+                .where(DepartmentTestAnswer.test_result_id == test_result.id)
+                .order_by(DepartmentTestAnswer.question_number)
+            )
+            test_result.answers = list(answers_result.scalars().all())
+        
+        return test_result
+
+    async def is_department_completed(self, user_id: int, department: str) -> bool:
+        """Проверить, завершен ли тест по отделу"""
+        result = await self.session.execute(
+            select(DepartmentTestResult.is_completed)
+            .where(
+                DepartmentTestResult.user_id == user_id,
+                DepartmentTestResult.department == department
+            )
+        )
+        completed = result.scalar_one_or_none()
+        return completed is True
