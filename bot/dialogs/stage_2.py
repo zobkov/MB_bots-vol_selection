@@ -5,7 +5,7 @@ from aiogram_dialog.widgets.kbd import Button, Start, Group, Select, Back, Next,
 from aiogram_dialog.widgets.text import Const, Format
 from aiogram_dialog.widgets.input import TextInput, MessageInput
 
-from bot.states import DepartmentSelectionSG, ApplicationSG, MenuSG, Stage2SG, GeneralQuestionsSG
+from bot.states import DepartmentSelectionSG, ApplicationSG, MenuSG, Stage2SG, TestingDepartmentsSelectionSG
 from database.repositories import UserRepository, ApplicationRepository
 from database.db import Database
 from bot.dialogs.checkpoint_utils import save_stage2_completion_checkpoint
@@ -65,8 +65,8 @@ async def on_start_testing(callback: CallbackQuery, button: Button, dialog_manag
         # Финальное сохранение данных участия через checkpoint
         await save_stage2_completion_checkpoint(dialog_manager, participation_data)
         
-        # Переходим к общему тестированию
-        await dialog_manager.start(GeneralQuestionsSG.q1, mode=StartMode.RESET_STACK)
+        # Переходим к выбору отделов для тестирования
+        await dialog_manager.start(TestingDepartmentsSelectionSG.selection, mode=StartMode.RESET_STACK)
         
     except Exception as e:
         logger.error(f"Ошибка при начале тестирования: {e}")
@@ -147,7 +147,7 @@ stage2_dialog = Dialog(
         Start(
             Const("🚀 Начать тестирование"), 
             id="to_testing", 
-            state=GeneralQuestionsSG.q1,
+            state=TestingDepartmentsSelectionSG.selection,
             on_click=on_start_testing
         ),
         Button(

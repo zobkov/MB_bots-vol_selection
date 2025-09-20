@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Callable
 from aiogram.types import Message, CallbackQuery
 from aiogram_dialog import Dialog, DialogManager, Window, StartMode
 from aiogram_dialog.widgets.kbd import Button
-from aiogram_dialog.widgets.text import Const, Format
+from aiogram_dialog.widgets.text import Const, Format, Progress
 from aiogram_dialog.widgets.input import TextInput
 
 from .models import TestConfig, TestQuestion
@@ -37,9 +37,12 @@ class UniversalTestDialogGenerator:
                     timer_started_key = f"{timer_key}_timer_started"
                     timer_stopped_key = f"{timer_key}_stopped"
                     
-                    if (not dialog_manager.dialog_data.get(timer_started_key, False) and 
-                        not dialog_manager.dialog_data.get(timer_stopped_key, False)):
-                        
+                    # Проверяем и dialog_data и реальное состояние таймера
+                    timer_already_started_in_data = dialog_manager.dialog_data.get(timer_started_key, False)
+                    timer_stopped = dialog_manager.dialog_data.get(timer_stopped_key, False)
+                    timer_active_in_manager = test_engine.timer_manager._is_timer_active(user_id, timer_key)
+                    
+                    if (not timer_already_started_in_data and not timer_stopped and not timer_active_in_manager):
                         logger.debug(f"Starting timer for {config.test_type} question {question.number}")
                         dialog_manager.dialog_data[timer_started_key] = True
                         await test_engine.start_question_timer(dialog_manager, config, question)
@@ -86,9 +89,9 @@ class UniversalTestDialogGenerator:
             user_id = callback.from_user.id
             await test_engine.cleanup_user_test(user_id)
             
-            # Возвращаемся к выбору отделов
-            from bot.states import TestingSG
-            await dialog_manager.start(TestingSG.department_selection, mode=StartMode.RESET_STACK)
+            # Возвращаемся к новому диалогу выбора отделов тестирования
+            from bot.states import TestingDepartmentsSelectionSG
+            await dialog_manager.start(TestingDepartmentsSelectionSG.selection, mode=StartMode.RESET_STACK)
             
         return on_back_to_departments
     
@@ -114,20 +117,36 @@ class UniversalTestDialogGenerator:
             
             timer_getter = create_timer_getter(question.number)
             
-            # Создаем окно вопроса
+            # Создаем окно вопроса  
+            def create_timer_display_dynamic(q_num):
+                async def dynamic_getter(dialog_manager: DialogManager, **kwargs):
+                    user_id = dialog_manager.event.from_user.id
+                    timer_key = f"user_{user_id}_{config.test_type}_q{q_num}"
+                    timer_data = await test_engine.timer_manager.get_timer_progress_data(timer_key)(dialog_manager, **kwargs)
+                    return timer_data
+                return dynamic_getter
+            
+            dynamic_timer_getter = create_timer_display_dynamic(question.number)
+            
             window = Window(
                 Format(
                     "{test_icon} <b>{test_display_name} - Вопрос {question_number}/{total_questions}</b>\n\n"
                     "{question_text}\n\n"
                     "(Время на ответ: {time_limit} секунд)"
                 ),
-                *test_engine.timer_manager.create_timer_display(f"timer_{config.test_type}_q{question.number}"),
+                Format("⏱️ Оставшееся время: {timer_minutes:02d}:{timer_seconds:02d}"),
+                Progress(
+                    "timer_progress",
+                    filled="🟩",
+                    empty="⬜",
+                    width=10
+                ),
                 TextInput(
                     id=f"{config.test_type}_q{question.number}_input",
                     on_success=input_handler
                 ),
                 state=getattr(config.states_group, f'q{question.number}'),
-                getter=[question_getter, timer_getter]
+                getter=[question_getter, dynamic_timer_getter]
             )
             
             windows.append(window)

@@ -5,6 +5,7 @@ from bot.dialogs.application import application_dialog
 from bot.dialogs.departments import department_selection_dialog
 from bot.dialogs.dialog_error_handler import dialog_error_handler
 from bot.dialogs.stage_2 import stage2_dialog
+from bot.dialogs.testing_departments_selection import testing_departments_dialog
 from bot.dialogs.general_testing_unified import general_testing_dialog
 from bot.dialogs.logistics_test_unified import logistics_test_dialog
 from bot.dialogs.program_test_unified import program_test_dialog
@@ -20,6 +21,7 @@ __all__ = [
     "department_selection_dialog",
     "dialog_error_handler",
     "stage2_dialog",
+    "testing_departments_dialog",
     "general_testing_dialog",
     "logistics_test_dialog",
     "program_test_dialog",

@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from aiogram_dialog import DialogManager, BaseDialogManager
 from aiogram_dialog.widgets.text import Format, Progress
+from aiogram_dialog.api.exceptions import OutdatedIntent
 
 logger = logging.getLogger(__name__)
 
@@ -108,8 +109,14 @@ class EnhancedTimerManager:
                         f"{timer_key}_minutes": actual_remaining // 60,
                         f"{timer_key}_seconds": actual_remaining % 60,
                     })
+                except OutdatedIntent as e:
+                    # OutdatedIntent - это нормально при переходах между диалогами
+                    logger.debug(f"Timer {timer_key} context outdated (OutdatedIntent), stopping timer gracefully: {e}")
+                    break
                 except Exception as e:
-                    logger.debug(f"Error updating bg_manager for {timer_key}: {e}")
+                    # Другие ошибки
+                    error_type = type(e).__name__
+                    logger.debug(f"Error updating bg_manager for {timer_key}: {error_type}: {e}")
                     break
                 
                 if actual_remaining <= 0:
@@ -131,8 +138,13 @@ class EnhancedTimerManager:
                     f"{timer_key}_seconds": 0,
                     f"{timer_key}_timeout": True,
                 })
+            except OutdatedIntent as e:
+                # OutdatedIntent при timeout - это нормально
+                logger.debug(f"Timer {timer_key} context outdated during timeout (OutdatedIntent), stopping gracefully: {e}")
             except Exception as e:
-                logger.debug(f"Error updating timeout data for {timer_key}: {e}")
+                # Другие ошибки
+                error_type = type(e).__name__
+                logger.debug(f"Error updating timeout data for {timer_key}: {error_type}: {e}")
             
             if on_timeout_callback:
                 try:

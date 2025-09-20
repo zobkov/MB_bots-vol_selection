@@ -46,6 +46,11 @@ class Stage2SG(StatesGroup):
     testing_start = State()
 
 
+class TestingDepartmentsSelectionSG(StatesGroup):
+    """Выбор отделов для тестирования"""
+    selection = State()
+
+
 class TestingSG(StatesGroup):
     """Система тестирования - общие вопросы"""
     start = State()

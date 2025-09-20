@@ -35,6 +35,40 @@ def email_check(text: str) -> str:
 
 **Critical**: When modifying dialogs, always update corresponding states in `bot/states/` and handle both normal flow + edit mode (`is_editing` flag in dialog_data).
 
+#### Dialog Launch and Start Modes (aiogram-dialog)
+Two important mode systems control dialog behavior:
+
+**LaunchMode** - Controls dialog stack management when creating dialogs:
+```python
+from aiogram_dialog import Dialog, LaunchMode
+
+dialog = Dialog(
+    Window(...),
+    launch_mode=LaunchMode.SINGLE_TOP,  # Dialog-level configuration
+)
+```
+
+LaunchMode options:
+- `LaunchMode.ROOT` - Always root dialog, resets stack (main menu)
+- `LaunchMode.EXCLUSIVE` - Only single dialog allowed, prevents stacking (banners)
+- `LaunchMode.SINGLE_TOP` - No duplicates on top, replaces itself (product pages)
+- `LaunchMode.STANDARD` - No limitations (default)
+
+**StartMode** - Controls stack behavior when starting dialogs:
+```python
+from aiogram_dialog import StartMode
+
+# In dialog handlers
+await dialog_manager.start(SomeStateSG.state, mode=StartMode.NORMAL)
+```
+
+StartMode options:
+- `StartMode.NORMAL` - Default, continues current state (most common)
+- `StartMode.RESET_STACK` - Clears existing stack, starts fresh
+- `StartMode.NEW_STACK` - Creates new stack alongside current one
+
+**Critical**: Use `StartMode.NORMAL` (not STANDARD) for regular dialog transitions. Use `StartMode.RESET_STACK` for main menu returns.
+
 ### Database Pattern
 Uses **Repository pattern** with manual session management:
 

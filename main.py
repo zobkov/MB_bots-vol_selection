@@ -13,9 +13,10 @@ from database.repositories import UserRepository
 from bot.handlers import router
 from bot.dialogs import (start_dialog, menu_dialog, application_dialog, 
                         department_selection_dialog, stage2_dialog,
-                        general_testing_dialog, logistics_test_dialog, 
-                        program_test_dialog, partners_test_dialog, 
-                        pr_test_dialog, marketing_test_dialog)
+                        testing_departments_dialog, general_testing_dialog, 
+                        logistics_test_dialog, program_test_dialog, 
+                        partners_test_dialog, pr_test_dialog, 
+                        marketing_test_dialog)
 from bot.middlewares import LoggingMiddleware
 from bot.keyboards.command_menu import set_main_menu
 from utils.logging_config import setup_logging, log_error, log_user_action
@@ -97,6 +98,7 @@ async def main():
         dp.include_router(application_dialog)
         dp.include_router(department_selection_dialog)
         dp.include_router(stage2_dialog)
+        dp.include_router(testing_departments_dialog)
         dp.include_router(general_testing_dialog)
         dp.include_router(logistics_test_dialog)
         dp.include_router(program_test_dialog)
