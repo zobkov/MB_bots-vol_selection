@@ -88,55 +88,260 @@ async def handler(callback: CallbackQuery, dialog_manager: DialogManager, db: Da
 ```
 
 ### Unified Testing System (NEW - Preferred Approach)
-**Modern, unified system** for all department testing with zero code duplication:
+**Complete unified system** for all department testing with zero code duplication. Located in `bot/dialogs/unified_testing/` package.
 
+#### Core Architecture Components
+
+**Package Structure**:
+```
+bot/dialogs/unified_testing/
+├── __init__.py          # Exports all components
+├── models.py            # Data models (TestQuestion, TestConfig, etc.)
+├── test_engine.py       # Core business logic (TestEngine singleton)
+├── enhanced_timer_utils.py  # User-isolated timer management
+├── dialog_generator.py  # Automatic aiogram-dialog creation
+└── README.md           # Documentation
+```
+
+#### Implementation Pattern (Complete Example)
+
+**1. Define Questions & Configuration** (`{department}_test_unified.py`):
 ```python
-# Pattern: Configuration-driven test creation
 from bot.dialogs.unified_testing import TestQuestion, TestConfig, create_test_dialog
+from bot.dialogs.checkpoint_utils import save_department_completion_checkpoint_with_session
+from bot.states import LogisticsTestSG
 
-# 1. Define questions
+# Question definitions with time limits
 LOGISTICS_QUESTIONS = [
     TestQuestion(
         number=1,
-        text="Question text here",
-        time_limit=60,
-        correct_answer="optional_answer"  # for validation
+        text="Вопрос о логистике 1...",
+        time_limit=120,  # seconds
+        correct_answer=None  # optional for validation
     ),
-    # ... more questions
+    TestQuestion(
+        number=2,
+        text="Вопрос о логистике 2...",
+        time_limit=120
+    ),
+    # ... up to 6 questions
 ]
 
-# 2. Create test configuration
+# Checkpoint callback function (optional)
+async def save_logistics_checkpoint(dialog_manager):
+    """Checkpoint функция для сохранения завершения тестирования логистики"""
+    try:
+        await save_department_completion_checkpoint_with_session(dialog_manager, "logistics")
+        logger.info("Logistics test checkpoint saved successfully")
+    except Exception as e:
+        logger.error(f"Error saving logistics checkpoint: {e}", exc_info=True)
+
+# Configuration object
 LOGISTICS_CONFIG = TestConfig(
-    test_type="logistics",
-    display_name="Логистика",
-    icon="🔧",
+    test_type="logistics",          # Database identifier
+    display_name="Логистика",       # Human-readable name
+    icon="🔧",                     # Emoji for UI
     questions=LOGISTICS_QUESTIONS,
-    states_group=LogisticsTestSG,
+    states_group=LogisticsTestSG,   # aiogram FSM states
     checkpoint_callback=save_logistics_checkpoint  # optional
 )
 
-# 3. Generate dialog (one line!)
+# Generate dialog (single line!)
 logistics_test_dialog = create_test_dialog(LOGISTICS_CONFIG)
 ```
 
-**Key Features**:
-- **User-isolated timers**: `user_{user_id}_{test_type}_q{question}` keys prevent conflicts
-- **Progress widgets**: Modern aiogram-dialog Progress with countdown display  
-- **Automatic DB saving**: Built-in answer persistence with timeout handling
-- **Zero duplication**: Single codebase for all department tests
-- **Type safety**: Full dataclass validation and error handling
+**2. States Group Definition** (`bot/states/`):
+```python
+from aiogram.fsm.state import State, StatesGroup
 
-**Migration Pattern**:
-1. Create new `{department}_test_unified.py` using TestConfig pattern
-2. Update import in `bot/dialogs/__init__.py` to point to unified version
-3. Test thoroughly before removing old version
-4. All functionality preserved: timers, checkpoints, state management
+class LogisticsTestSG(StatesGroup):
+    q1 = State()
+    q2 = State()
+    q3 = State()
+    q4 = State()
+    q5 = State()
+    q6 = State()
+    completed = State()
+```
 
-**Timer System Architecture**:
-- **EnhancedTimerManager**: User-based timer isolation and management
-- **TestEngine**: Core business logic for test flow and DB operations
-- **DialogGenerator**: Automatic aiogram-dialog creation from config
-- **Progress Integration**: Real-time countdown with 2-second updates
+#### Core Features & Benefits
+
+**User-Isolated Timer System**:
+- Timer keys: `user_{user_id}_{test_type}_q{question_number}`
+- Zero conflicts between users and departments
+- Automatic cleanup on completion/timeout
+- Progress widgets with 2-second updates (prevents Telegram flood)
+
+**Database Integration**:
+- Automatic answer saving to `department_test_results` table
+- Completion status tracking (`is_completed` field)
+- Time tracking for each answer
+- Checkpoint system integration
+
+**Dialog Generation**:
+- Automatic window creation for each question
+- Built-in timer display with Progress widgets
+- Completion window with navigation
+- Error handling and validation
+
+**Type Safety & Validation**:
+- Dataclass models with full validation
+- Runtime type checking
+- Configuration validation
+
+#### Technical Implementation Details
+
+**Timer Management** (`EnhancedTimerManager`):
+```python
+# User-based timer isolation
+self.user_timers: Dict[int, Dict[str, asyncio.Task]] = {}
+
+# Timer key format for isolation
+timer_key = f"user_{user_id}_{test_type}_q{question_number}"
+
+# Progress calculation (countdown style: 100% → 0%)
+progress = (remaining_time / total_duration) * 100
+```
+
+**Test Engine** (`TestEngine` singleton):
+```python
+# Answer saving with time tracking
+async def save_answer(self, dialog_manager, config, question_number, answer_text):
+    time_taken = self.timer_manager.calculate_time_taken(dialog_manager, timer_key)
+    # Saves to department_test_results table
+
+# Test completion with database update
+async def complete_test(self, dialog_manager, config):
+    await self._mark_test_completed(user_id, config.test_type)
+    # Calls dept_repo.complete_test() for is_completed=True
+```
+
+**Dialog Generation** (`UniversalTestDialogGenerator`):
+```python
+# Question window with timer
+Window(
+    Format("{test_icon} <b>{test_display_name} - Вопрос {question_number}/{total_questions}</b>"),
+    *timer_manager.create_timer_display(),
+    TextInput(id=f"{test_type}_q{number}_input", on_success=input_handler),
+    state=states_group.q{number},
+    getter=[question_getter, timer_getter]
+)
+```
+
+#### Migration Pattern for Existing Tests
+
+1. **Create Unified Version**:
+   ```python
+   # Create {department}_test_unified.py
+   from bot.dialogs.unified_testing import TestQuestion, TestConfig, create_test_dialog
+   ```
+
+2. **Define Questions Array**:
+   ```python
+   DEPARTMENT_QUESTIONS = [
+       TestQuestion(number=1, text="...", time_limit=120),
+       # ... all questions
+   ]
+   ```
+
+3. **Create Configuration**:
+   ```python
+   DEPARTMENT_CONFIG = TestConfig(
+       test_type="department_name",
+       display_name="Department Display Name", 
+       icon="🏢",
+       questions=DEPARTMENT_QUESTIONS,
+       states_group=DepartmentTestSG,
+       checkpoint_callback=save_department_checkpoint  # optional
+   )
+   ```
+
+4. **Generate Dialog**:
+   ```python
+   department_test_dialog = create_test_dialog(DEPARTMENT_CONFIG)
+   ```
+
+5. **Update Imports** in `bot/dialogs/__init__.py`:
+   ```python
+   from .department_test_unified import department_test_dialog
+   ```
+
+#### Critical Technical Requirements
+
+**Database Session Management**:
+```python
+# ALWAYS use new session API, not deprecated context manager
+db: Database = dialog_manager.middleware_data.get("db")
+session = await db.get_session()
+try:
+    # Repository operations
+    dept_repo = DepartmentTestRepository(session)
+    await dept_repo.complete_test(user.id, test_type)
+    await session.commit()
+finally:
+    await session.close()  # Explicit cleanup required
+```
+
+**Timer State Checking**:
+```python
+# Prevent duplicate timer launches
+if (dialog_manager and hasattr(dialog_manager, 'current_context')):
+    current_state = dialog_manager.current_context().state
+    expected_state = getattr(config.states_group, f'q{question.number}')
+    if current_state == expected_state and not timer_already_started:
+        await start_timer()
+```
+
+**Progress Widget Configuration**:
+```python
+# Countdown display (100% → 0% for intuitive countdown)
+Progress(
+    "timer_progress",
+    filled="🟩",     # Green filled blocks
+    empty="⬜",       # White empty blocks  
+    width=10         # Total blocks
+)
+```
+
+#### Error Handling & Debugging
+
+**Logging Integration**:
+```python
+logger = logging.getLogger(__name__)
+logger.debug(f"Starting timer for {test_type} question {question_number}")
+logger.info(f"Test completed: {test_type} for user {user_id}")
+logger.error(f"Timer error: {e}", exc_info=True)
+```
+
+**Completion Verification**:
+```python
+# completion_getter ensures database update on first render
+async def completion_getter(dialog_manager=None, **kwargs):
+    test_completed_key = f"test_{config.test_type}_completed"
+    if not dialog_manager.dialog_data.get(test_completed_key, False):
+        await test_engine.complete_test(dialog_manager, config)
+        dialog_manager.dialog_data[test_completed_key] = True
+```
+
+#### Dependencies & Requirements
+
+**Required Imports for Unified Tests**:
+```python
+from bot.dialogs.unified_testing import TestQuestion, TestConfig, create_test_dialog
+from bot.dialogs.checkpoint_utils import save_department_completion_checkpoint_with_session
+from bot.states import {Department}TestSG
+import logging
+```
+
+**Database Schema Requirements**:
+- `department_test_results` table with `is_completed` field
+- User-based foreign keys for answer tracking
+- Timestamp fields for completion tracking
+
+**State Management**:
+- FSM states: `q1`, `q2`, ..., `q6`, `completed`
+- Dialog data persistence across question transitions
+- Cleanup on dialog exit or completion
 
 ### Legacy Timer System (Deprecated)
 **Old approach** - still works but avoid for new tests:

@@ -5,12 +5,12 @@ from bot.dialogs.application import application_dialog
 from bot.dialogs.departments import department_selection_dialog
 from bot.dialogs.dialog_error_handler import dialog_error_handler
 from bot.dialogs.stage_2 import stage2_dialog
-from bot.dialogs.general_testing import general_testing_dialog
+from bot.dialogs.general_testing_unified import general_testing_dialog
 from bot.dialogs.logistics_test_unified import logistics_test_dialog
-from bot.dialogs.program_test import program_test_dialog
-from bot.dialogs.partners_test import partners_test_dialog
-from bot.dialogs.pr_test import pr_test_dialog
-from bot.dialogs.marketing_test import marketing_test_dialog
+from bot.dialogs.program_test_unified import program_test_dialog
+from bot.dialogs.partners_test_unified import partners_test_dialog
+from bot.dialogs.pr_test_unified import pr_test_dialog
+from bot.dialogs.marketing_test_unified import marketing_test_dialog
 
 
 __all__ = [
