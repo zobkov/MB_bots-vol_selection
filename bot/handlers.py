@@ -3,7 +3,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from aiogram_dialog import DialogManager, StartMode
 
-from bot.states import StartSG, MenuSG
+from bot.states import StartSG, MenuSG, TestingDepartmentsSelectionSG
 from database.repositories import UserRepository
 from database.db import Database
 from bot.dialogs.timer_utils import stop_all_user_timers_simple
@@ -55,3 +55,25 @@ async def cmd_menu(message: Message, dialog_manager: DialogManager):
         await session.close()
     
     await dialog_manager.start(MenuSG.main, mode=StartMode.RESET_STACK)
+
+@router.message(Command("test"))
+async def cmd_menu(message: Message, dialog_manager: DialogManager):
+    """Обработчик команды /menu"""
+    # Останавливаем все активные таймеры (простая версия)
+    await stop_all_user_timers_simple()
+    
+    # Получаем базу данных из middleware
+    db: Database = dialog_manager.middleware_data.get("db")
+    
+    # Создаем/получаем пользователя
+    session = await db.get_session()
+    try:
+        user_repo = UserRepository(session)
+        await user_repo.get_or_create_user(
+            telegram_id=message.from_user.id,
+            telegram_username=message.from_user.username
+        )
+    finally:
+        await session.close()
+    
+    await dialog_manager.start(TestingDepartmentsSelectionSG.selection, mode=StartMode.RESET_STACK)

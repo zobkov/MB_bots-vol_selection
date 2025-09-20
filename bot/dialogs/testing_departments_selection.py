@@ -4,9 +4,10 @@
 import logging
 from aiogram.types import CallbackQuery
 from aiogram_dialog import Dialog, DialogManager, Window, StartMode
-from aiogram_dialog.widgets.kbd import Button, Group, Row
+from aiogram_dialog.widgets.kbd import Button, Group, Row, Select, Column
 from aiogram_dialog.widgets.text import Const, Format
 from bot.states import TestingDepartmentsSelectionSG, GeneralQuestionsSG, LogisticsTestSG, ProgramTestSG, PartnersTestSG, PRTestSG, MarketingTestSG
+from database.repositories import Stage2Repository, DepartmentTestRepository, UserRepository
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +22,88 @@ TESTING_DEPARTMENTS = [
 ]
 
 
-async def get_departments_data(**kwargs):
-    """Получение данных отделов"""
-    return {
-        "departments": TESTING_DEPARTMENTS
-    }
+async def get_departments_data(dialog_manager: DialogManager, **kwargs):
+    """Получение данных отделов с проверкой статуса завершения"""
+    try:
+        # Получаем пользователя
+        db = dialog_manager.middleware_data.get("db")
+        if not db:
+            logger.error("Database not found in middleware")
+            return {"departments": TESTING_DEPARTMENTS, "general_completed": False}
+            
+        session = await db.get_session()
+        try:
+            user_repo = UserRepository(session)
+            stage2_repo = Stage2Repository(session)
+            dept_repo = DepartmentTestRepository(session)
+            
+            # Получаем telegram_id из event
+            event = dialog_manager.event
+            if hasattr(event, 'from_user'):
+                telegram_id = event.from_user.id
+            else:
+                logger.error("Cannot get telegram_id from event")
+                return {"departments": TESTING_DEPARTMENTS, "general_completed": False}
+            
+            # Получаем пользователя
+            user = await user_repo.get_user_by_telegram_id(telegram_id)
+            if not user:
+                logger.error(f"User not found for telegram_id: {telegram_id}")
+                return {"departments": TESTING_DEPARTMENTS, "general_completed": False}
+            
+            # Проверяем завершение общих вопросов
+            # Проверяем в обеих системах - старой (stage2_answers) и новой (department_test_results)
+            general_completed_old = await stage2_repo.is_general_questions_completed(user.id)
+            general_completed_new = await dept_repo.is_department_completed(user.id, "general")
+            general_completed = general_completed_old or general_completed_new
+            
+            logger.debug(f"General questions status for user {telegram_id}: "
+                        f"old_system={general_completed_old}, new_system={general_completed_new}, "
+                        f"final={general_completed}")
+            
+            # Получаем список завершенных отделов
+            completed_departments = await dept_repo.get_completed_departments(user.id)
+            
+            # Фильтруем отделы, оставляя только не завершенные
+            available_departments = [
+                dept for dept in TESTING_DEPARTMENTS 
+                if dept["id"] not in completed_departments
+            ]
+            
+            logger.info(f"User {telegram_id}: general_completed={general_completed}, "
+                       f"completed_departments={completed_departments}, "
+                       f"available_departments={[d['id'] for d in available_departments]}")
+            
+            logger.debug(f"Conditions for user {telegram_id}: "
+                        f"general_not_completed={not general_completed}, "
+                        f"departments_available={len(available_departments) > 0}, "
+                        f"all_tests_completed={general_completed and len(available_departments) == 0}")
+            
+            # Форматируем статус отделов
+            departments_status = ""
+            for dept in TESTING_DEPARTMENTS:
+                if dept["id"] in completed_departments:
+                    departments_status += f"• {dept['icon']} {dept['name']} ✅\n"
+                else:
+                    departments_status += f"• {dept['icon']} {dept['name']} ❌\n"
+            
+            return {
+                "departments": available_departments,
+                "general_completed": general_completed,
+                "general_not_completed": not general_completed,
+                "departments_available": len(available_departments) > 0,
+                "all_tests_completed": general_completed and len(available_departments) == 0,
+                "general_status": "✅" if general_completed else "❌",
+                "departments_status": departments_status.strip(),
+                "completed_departments": completed_departments
+            }
+            
+        finally:
+            await session.close()
+            
+    except Exception as e:
+        logger.error(f"Error in get_departments_data: {e}", exc_info=True)
+        return {"departments": TESTING_DEPARTMENTS, "general_completed": False}
 
 
 async def on_general_testing_start(callback: CallbackQuery, button, dialog_manager: DialogManager):
@@ -46,6 +124,18 @@ async def on_department_button_click(callback: CallbackQuery, button, dialog_man
         logger.error(f"Unknown department: {department_id}")
 
 
+async def on_department_select(callback: CallbackQuery, widget, dialog_manager: DialogManager, item_id: str):
+    """Обработка выбора отдела из динамического списка"""
+    logger.info(f"Department selected for testing: {item_id} by user {callback.from_user.id}")
+    
+    # Находим отдел и запускаем соответствующий тест
+    department = next((dept for dept in TESTING_DEPARTMENTS if dept["id"] == item_id), None)
+    if department:
+        await dialog_manager.start(department["state"], mode=StartMode.NORMAL)
+    else:
+        logger.error(f"Unknown department: {item_id}")
+
+
 async def on_testing_complete(callback: CallbackQuery, button, dialog_manager: DialogManager):
     """Завершение всего тестирования"""
     logger.info(f"Testing completed for user {callback.from_user.id}")
@@ -59,54 +149,44 @@ testing_departments_dialog = Dialog(
     Window(
         Format(
             "📝 <b>Тестирование отделов - Этап 2</b>\n\n"
-            "Выберите отдел для прохождения тестирования:\n\n"
-            "🎯 <b>Обязательно:</b>\n"
-            "• Общие вопросы\n\n"
-            "🏢 <b>Отделы (выберите интересующие):</b>"
+            "Статус прохождения:\n\n"
+            "🎯 <b>Обязательные:</b>\n"
+            "• Общие вопросы {general_status}\n\n"
+            "🏢 <b>Отделы:</b>\n"
+            "{departments_status}"
         ),
         
-        # Кнопка общих вопросов
+        # Кнопка общих вопросов (показывается только если не завершены)
         Button(
-            Const("📝 Общие вопросы"),
+            Const("📝 Пройти общие вопросы"),
             id="general_testing",
-            on_click=on_general_testing_start
+            on_click=on_general_testing_start,
+            when="general_not_completed"
         ),
         
-        # Список отделов
-        Group(
-            Button(
-                Const("🔧 Логистика"),
-                id="dept_logistics",
-                on_click=lambda c, b, dm: on_department_button_click(c, b, dm, "logistics")
+        # Динамический выбор отделов
+        Column(
+            Select(
+                Format("{item[icon]} {item[name]}"),
+                id="dept_select",
+                item_id_getter=lambda item: item["id"],
+                items="departments",
+                on_click=on_department_select,
+                when="departments_available"
             ),
-            Button(
-                Const("📋 Программа"),
-                id="dept_program", 
-                on_click=lambda c, b, dm: on_department_button_click(c, b, dm, "program")
-            ),
-            Button(
-                Const("🤝 Партнеры"),
-                id="dept_partners",
-                on_click=lambda c, b, dm: on_department_button_click(c, b, dm, "partners")
-            ),
-            Button(
-                Const("📢 PR"),
-                id="dept_pr",
-                on_click=lambda c, b, dm: on_department_button_click(c, b, dm, "pr")
-            ),
-            Button(
-                Const("📈 Маркетинг"),
-                id="dept_marketing",
-                on_click=lambda c, b, dm: on_department_button_click(c, b, dm, "marketing")
-            ),
-            width=2
+        ),
+
+        # Информационное сообщение если все тесты завершены
+        Format(
+            "✅ <b>Все доступные тесты завершены!</b>",
+            when="all_tests_completed"
         ),
         
-        # Кнопка завершения
+        # Кнопка возврата в меню
         Row(
             Button(
-                Const("✅ Завершить тестирование"),
-                id="complete_testing",
+                Const("✅ Заврешить тестирование"),
+                id="back_to_menu",
                 on_click=on_testing_complete
             )
         ),

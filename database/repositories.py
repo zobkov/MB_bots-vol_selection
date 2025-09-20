@@ -288,6 +288,19 @@ class Stage2Repository:
         )
         return result.scalar_one_or_none()
 
+    async def is_general_questions_completed(self, user_id: int) -> bool:
+        """Проверить, завершены ли общие вопросы"""
+        try:
+            result = await self.session.execute(
+                select(Stage2Answer.general_questions_completed)
+                .where(Stage2Answer.user_id == user_id)
+            )
+            completed = result.scalar_one_or_none()
+            return completed is True
+        except Exception as e:
+            log_error(e, f"Ошибка при проверке завершения общих вопросов для пользователя {user_id}")
+            return False
+
 
 class DepartmentTestRepository:
     """Репозиторий для работы с тестированием по отделам"""
@@ -428,3 +441,18 @@ class DepartmentTestRepository:
         )
         completed = result.scalar_one_or_none()
         return completed is True
+
+    async def get_completed_departments(self, user_id: int) -> List[str]:
+        """Получить список завершенных отделов для пользователя"""
+        try:
+            result = await self.session.execute(
+                select(DepartmentTestResult.department)
+                .where(
+                    DepartmentTestResult.user_id == user_id,
+                    DepartmentTestResult.is_completed == True
+                )
+            )
+            return list(result.scalars().all())
+        except Exception as e:
+            log_error(e, f"Ошибка при получении завершенных отделов для пользователя {user_id}")
+            return []
