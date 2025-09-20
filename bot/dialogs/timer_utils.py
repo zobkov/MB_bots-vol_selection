@@ -79,6 +79,12 @@ async def start_timer_background(dialog_manager: DialogManager, timer_key: str,
                                 duration: int, on_timeout_callback=None):
     """Запустить таймер в фоновом режиме согласно документации aiogram-dialog"""
     try:
+        # Проверяем, не запущен ли уже таймер или не остановлен ли он
+        if (timer_key in active_timers and not active_timers[timer_key].done()) or \
+           dialog_manager.dialog_data.get(f"{timer_key}_stopped", False):
+            logger.debug(f"🔧 DEBUG: Таймер {timer_key} уже запущен или остановлен, пропускаем")
+            return
+            
         logger.debug(f"🔧 DEBUG: Запуск таймера {timer_key} на {duration}s")
         
         # Останавливаем предыдущий таймер если он есть
@@ -114,6 +120,17 @@ async def timer_countdown_bg(bg_manager: BaseDialogManager, timer_key: str,
         for remaining in range(duration, 0, -2):
             await asyncio.sleep(2)
             
+            # Проверяем, что задача не была отменена
+            current_task = asyncio.current_task()
+            if current_task and current_task.cancelled():
+                logger.debug(f"🔧 DEBUG: {timer_key} - задача отменена, прекращаю обновления")
+                break
+            
+            # Проверяем, что таймер все еще активен в глобальном списке
+            if timer_key not in active_timers:
+                logger.debug(f"🔧 DEBUG: {timer_key} - таймер удален из активных, прекращаю обновления")
+                break
+            
             # Проверяем, что остается время
             actual_remaining = max(0, remaining - 1)  # Учитываем что прошла еще одна секунда
             
@@ -122,29 +139,42 @@ async def timer_countdown_bg(bg_manager: BaseDialogManager, timer_key: str,
             
             logger.debug(f"🔧 DEBUG: {timer_key} remaining={actual_remaining}, progress={progress:.1f}%")
             
-            # Обновляем данные через background manager
-            await bg_manager.update({
-                f"{timer_key}_remaining": actual_remaining,
-                f"{timer_key}_progress": progress,
-                f"{timer_key}_minutes": actual_remaining // 60,
-                f"{timer_key}_seconds": actual_remaining % 60,
-            })
+            # Обновляем данные через background manager только если таймер активен
+            try:
+                await bg_manager.update({
+                    f"{timer_key}_remaining": actual_remaining,
+                    f"{timer_key}_progress": progress,
+                    f"{timer_key}_minutes": actual_remaining // 60,
+                    f"{timer_key}_seconds": actual_remaining % 60,
+                })
+            except Exception as e:
+                logger.debug(f"🔧 DEBUG: {timer_key} - ошибка обновления bg_manager: {e}, прекращаю обновления")
+                break
             
             # Останавливаемся, если время истекло
             if actual_remaining <= 0:
                 break
         
+        # Проверяем еще раз, что задача не была отменена
+        current_task = asyncio.current_task()
+        if current_task and current_task.cancelled():
+            logger.debug(f"🔧 DEBUG: {timer_key} - задача была отменена перед таймаутом")
+            return
+        
         # Время истекло
         logger.debug(f"🔧 DEBUG: {timer_key} - время истекло!")
         
         # Обновляем данные при таймауте
-        await bg_manager.update({
-            f"{timer_key}_remaining": 0,
-            f"{timer_key}_progress": 0,
-            f"{timer_key}_minutes": 0,
-            f"{timer_key}_seconds": 0,
-            f"{timer_key}_timeout": True,
-        })
+        try:
+            await bg_manager.update({
+                f"{timer_key}_remaining": 0,
+                f"{timer_key}_progress": 0,
+                f"{timer_key}_minutes": 0,
+                f"{timer_key}_seconds": 0,
+                f"{timer_key}_timeout": True,
+            })
+        except Exception as e:
+            logger.debug(f"🔧 DEBUG: {timer_key} - ошибка обновления при таймауте: {e}")
         
         # Вызываем callback если есть
         if on_timeout_callback:

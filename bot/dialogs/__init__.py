@@ -6,7 +6,7 @@ from bot.dialogs.departments import department_selection_dialog
 from bot.dialogs.dialog_error_handler import dialog_error_handler
 from bot.dialogs.stage_2 import stage2_dialog
 from bot.dialogs.general_testing import general_testing_dialog
-from bot.dialogs.logistics_test import logistics_test_dialog
+from bot.dialogs.logistics_test_unified import logistics_test_dialog
 from bot.dialogs.program_test import program_test_dialog
 from bot.dialogs.partners_test import partners_test_dialog
 from bot.dialogs.pr_test import pr_test_dialog

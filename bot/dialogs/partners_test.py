@@ -9,7 +9,10 @@ from aiogram_dialog.widgets.text import Const, Format
 from aiogram_dialog.widgets.input import TextInput
 
 from bot.states import PartnersTestSG, TestingSG
-from bot.dialogs.timer_utils import timer_manager, get_timer_progress_data, create_timer_display, calculate_time_taken
+from bot.dialogs.timer_utils import (
+    start_timer_background, get_timer_progress_data, create_timer_display,
+    calculate_time_taken, stop_timer, cancel_dialog_with_timers
+)
 from database.repositories import UserRepository, DepartmentTestRepository
 from database.db import Database
 from bot.dialogs.checkpoint_utils import save_department_completion_checkpoint_with_session
@@ -18,21 +21,78 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# Async геттеры для вопросов partners
+# Async геттеры для вопросов partners с запуском таймеров
 async def get_partners_q1_data(**kwargs):
+    logger.debug(f"🔧 DEBUG: get_partners_q1_data вызван с kwargs: {list(kwargs.keys())}")
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        current_state = dialog_manager.current_context().state
+        if current_state == PartnersTestSG.q1:
+            # Проверяем, не запущен ли уже таймер
+            if not dialog_manager.dialog_data.get("partners_q1_timer_started"):
+                logger.debug("🔧 DEBUG: Запуск таймера для партнеров вопроса 1 из геттера")
+                dialog_manager.dialog_data["partners_q1_timer_started"] = True
+                await start_timer_background(dialog_manager, "partners_q1", 120, on_partners_q1_timeout)
+        else:
+            logger.debug(f"🔧 DEBUG: Текущее состояние {current_state}, ожидаем {PartnersTestSG.q1}")
+    else:
+        logger.debug("🔧 DEBUG: dialog_manager не найден или не имеет current_context")
     return {"question_text": PARTNERS_QUESTIONS[1]["text"]}
 
 async def get_partners_q2_data(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        current_state = dialog_manager.current_context().state
+        if current_state == PartnersTestSG.q2:
+            if not dialog_manager.dialog_data.get("partners_q2_timer_started"):
+                logger.debug("🔧 DEBUG: Запуск таймера для партнеров вопроса 2 из геттера")
+                dialog_manager.dialog_data["partners_q2_timer_started"] = True
+                await start_timer_background(dialog_manager, "partners_q2", 90, on_partners_q2_timeout)
     return {"question_text": PARTNERS_QUESTIONS[2]["text"]}
 
 async def get_partners_q3_data(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        current_state = dialog_manager.current_context().state
+        if current_state == PartnersTestSG.q3:
+            if not dialog_manager.dialog_data.get("partners_q3_timer_started"):
+                logger.debug("🔧 DEBUG: Запуск таймера для партнеров вопроса 3 из геттера")
+                dialog_manager.dialog_data["partners_q3_timer_started"] = True
+                await start_timer_background(dialog_manager, "partners_q3", 60, on_partners_q3_timeout)
     return {"question_text": PARTNERS_QUESTIONS[3]["text"]}
 
 async def get_partners_q4_data(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        current_state = dialog_manager.current_context().state
+        if current_state == PartnersTestSG.q4:
+            if not dialog_manager.dialog_data.get("partners_q4_timer_started"):
+                logger.debug("🔧 DEBUG: Запуск таймера для партнеров вопроса 4 из геттера")
+                dialog_manager.dialog_data["partners_q4_timer_started"] = True
+                await start_timer_background(dialog_manager, "partners_q4", 90, on_partners_q4_timeout)
     return {"question_text": PARTNERS_QUESTIONS[4]["text"]}
 
 async def get_partners_q5_data(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        current_state = dialog_manager.current_context().state
+        if current_state == PartnersTestSG.q5:
+            if not dialog_manager.dialog_data.get("partners_q5_timer_started"):
+                logger.debug("🔧 DEBUG: Запуск таймера для партнеров вопроса 5 из геттера")
+                dialog_manager.dialog_data["partners_q5_timer_started"] = True
+                await start_timer_background(dialog_manager, "partners_q5", 90, on_partners_q5_timeout)
     return {"question_text": PARTNERS_QUESTIONS[5]["text"]}
+
+async def get_partners_q6_data(**kwargs):
+    dialog_manager = kwargs.get('dialog_manager')
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        current_state = dialog_manager.current_context().state
+        if current_state == PartnersTestSG.q6:
+            if not dialog_manager.dialog_data.get("partners_q6_timer_started"):
+                logger.debug("🔧 DEBUG: Запуск таймера для партнеров вопроса 6 из геттера")
+                dialog_manager.dialog_data["partners_q6_timer_started"] = True
+                await start_timer_background(dialog_manager, "partners_q6", 90, on_partners_q6_timeout)
+    return {"question_text": PARTNERS_QUESTIONS[6]["text"]}
 
 
 
@@ -68,10 +128,12 @@ PARTNERS_QUESTIONS = {
 
 async def save_partners_answer_and_proceed(dialog_manager: DialogManager, question_num: int, answer: str):
     """Сохранить ответ и перейти к следующему вопросу"""
+    logger.info(f"🔧 DEBUG: save_partners_answer_and_proceed вызвана для вопроса {question_num} с ответом '{answer}'")
     try:
         # Останавливаем таймер
         timer_key = f"partners_q{question_num}"
-        await timer_manager.stop_timer(timer_key)
+        await stop_timer(dialog_manager, timer_key)
+        logger.info(f"🔧 DEBUG: Таймер {timer_key} остановлен")
         
         # Вычисляем время ответа
         time_taken = calculate_time_taken(dialog_manager, timer_key)
@@ -138,21 +200,27 @@ async def save_partners_answer_and_proceed(dialog_manager: DialogManager, questi
 
 # Обработчики ввода
 async def on_partners_q1_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.info(f"🔧 DEBUG: on_partners_q1_input вызван с текстом: '{text}'")
     await save_partners_answer_and_proceed(dialog_manager, 1, text)
 
 async def on_partners_q2_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.info(f"🔧 DEBUG: on_partners_q2_input вызван с текстом: '{text}'")
     await save_partners_answer_and_proceed(dialog_manager, 2, text)
 
 async def on_partners_q3_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.info(f"🔧 DEBUG: on_partners_q3_input вызван с текстом: '{text}'")
     await save_partners_answer_and_proceed(dialog_manager, 3, text)
 
 async def on_partners_q4_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.info(f"🔧 DEBUG: on_partners_q4_input вызван с текстом: '{text}'")
     await save_partners_answer_and_proceed(dialog_manager, 4, text)
 
 async def on_partners_q5_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.info(f"🔧 DEBUG: on_partners_q5_input вызван с текстом: '{text}'")
     await save_partners_answer_and_proceed(dialog_manager, 5, text)
 
 async def on_partners_q6_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.info(f"🔧 DEBUG: on_partners_q6_input вызван с текстом: '{text}'")
     await save_partners_answer_and_proceed(dialog_manager, 6, text)
 
 
@@ -176,24 +244,7 @@ async def on_partners_q6_timeout(dialog_manager: DialogManager, timer_key: str):
     await save_partners_answer_and_proceed(dialog_manager, 6, "")
 
 
-# Функции запуска таймеров
-async def start_partners_timer_q1(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "partners_q1", 120, on_partners_q1_timeout)
-
-async def start_partners_timer_q2(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "partners_q2", 90, on_partners_q2_timeout)
-
-async def start_partners_timer_q3(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "partners_q3", 60, on_partners_q3_timeout)
-
-async def start_partners_timer_q4(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "partners_q4", 90, on_partners_q4_timeout)
-
-async def start_partners_timer_q5(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "partners_q5", 90, on_partners_q5_timeout)
-
-async def start_partners_timer_q6(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "partners_q6", 90, on_partners_q6_timeout)
+# Функции запуска таймеров удалены - теймеры запускаются через геттеры
 
 
 async def on_back_to_departments(callback: CallbackQuery, button: Button, dialog_manager: DialogManager):
@@ -207,7 +258,6 @@ partners_test_dialog = Dialog(
         TextInput(id="partners_q1_input", on_success=on_partners_q1_input),
         state=PartnersTestSG.q1,
         getter=[get_partners_q1_data, get_timer_progress_data("partners_q1")],
-        on_process_result=start_partners_timer_q1,
     ),
     Window(
         Format("🤝 <b>Партнеры - Вопрос 2/6</b>\n\n{question_text}\n\n(Время на ответ: 90 секунд)"),
@@ -215,7 +265,6 @@ partners_test_dialog = Dialog(
         TextInput(id="partners_q2_input", on_success=on_partners_q2_input),
         state=PartnersTestSG.q2,
         getter=[get_partners_q2_data, get_timer_progress_data("partners_q2")],
-        on_process_result=start_partners_timer_q2,
     ),
     Window(
         Format("🤝 <b>Партнеры - Вопрос 3/6</b>\n\n{question_text}\n\n(Время на ответ: 60 секунд)"),
@@ -223,7 +272,6 @@ partners_test_dialog = Dialog(
         TextInput(id="partners_q3_input", on_success=on_partners_q3_input),
         state=PartnersTestSG.q3,
         getter=[get_partners_q3_data, get_timer_progress_data("partners_q3")],
-        on_process_result=start_partners_timer_q3,
     ),
     Window(
         Format("🤝 <b>Партнеры - Вопрос 4/6</b>\n\n{question_text}\n\n(Время на ответ: 90 секунд)"),
@@ -231,7 +279,6 @@ partners_test_dialog = Dialog(
         TextInput(id="partners_q4_input", on_success=on_partners_q4_input),
         state=PartnersTestSG.q4,
         getter=[get_partners_q4_data, get_timer_progress_data("partners_q4")],
-        on_process_result=start_partners_timer_q4,
     ),
     Window(
         Format("🤝 <b>Партнеры - Вопрос 5/6</b>\n\n{question_text}\n\n(Время на ответ: 90 секунд)"),
@@ -239,15 +286,13 @@ partners_test_dialog = Dialog(
         TextInput(id="partners_q5_input", on_success=on_partners_q5_input),
         state=PartnersTestSG.q5,
         getter=[get_partners_q5_data, get_timer_progress_data("partners_q5")],
-        on_process_result=start_partners_timer_q5,
     ),
     Window(
         Format("🤝 <b>Партнеры - Вопрос 6/6</b>\n\n{question_text}\n\n(Время на ответ: 90 секунд)"),
         *create_timer_display("partners_q6"),
         TextInput(id="partners_q6_input", on_success=on_partners_q6_input),
         state=PartnersTestSG.q6,
-        getter=[lambda **kwargs: {"question_text": PARTNERS_QUESTIONS[6]["text"]}, get_timer_progress_data("partners_q6")],
-        on_process_result=start_partners_timer_q6,
+        getter=[get_partners_q6_data, get_timer_progress_data("partners_q6")],
     ),
     Window(
         Const("🎉 <b>Огонь, ты закончил(а) опрос для отдела Партнеров!</b>\n\n"

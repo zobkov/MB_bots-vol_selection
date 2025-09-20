@@ -28,11 +28,13 @@ async def get_logistics_q1_data(**kwargs):
     if dialog_manager and hasattr(dialog_manager, 'current_context'):
         current_state = dialog_manager.current_context().state
         if current_state == LogisticsTestSG.q1:
-            # Проверяем, не запущен ли уже таймер
-            if not dialog_manager.dialog_data.get("logistics_q1_timer_started"):
+            # Проверяем, не запущен ли уже таймер и не остановлен ли он
+            timer_key = "logistics_q1"
+            if (not dialog_manager.dialog_data.get(f"{timer_key}_timer_started") and 
+                not dialog_manager.dialog_data.get(f"{timer_key}_stopped")):
                 logger.debug("🔧 DEBUG: Запуск таймера для логистики вопроса 1 из геттера")
-                dialog_manager.dialog_data["logistics_q1_timer_started"] = True
-                await start_timer_background(dialog_manager, "logistics_q1", 60, on_logistics_q1_timeout)
+                dialog_manager.dialog_data[f"{timer_key}_timer_started"] = True
+                await start_timer_background(dialog_manager, timer_key, 60, on_logistics_q1_timeout)
         else:
             logger.debug(f"🔧 DEBUG: Текущее состояние {current_state}, ожидаем {LogisticsTestSG.q1}")
     else:
@@ -44,10 +46,12 @@ async def get_logistics_q2_data(**kwargs):
     if dialog_manager and hasattr(dialog_manager, 'current_context'):
         current_state = dialog_manager.current_context().state
         if current_state == LogisticsTestSG.q2:
-            if not dialog_manager.dialog_data.get("logistics_q2_timer_started"):
+            timer_key = "logistics_q2"
+            if (not dialog_manager.dialog_data.get(f"{timer_key}_timer_started") and 
+                not dialog_manager.dialog_data.get(f"{timer_key}_stopped")):
                 logger.debug("🔧 DEBUG: Запуск таймера для логистики вопроса 2 из геттера")
-                dialog_manager.dialog_data["logistics_q2_timer_started"] = True
-                await start_timer_background(dialog_manager, "logistics_q2", 90, on_logistics_q2_timeout)
+                dialog_manager.dialog_data[f"{timer_key}_timer_started"] = True
+                await start_timer_background(dialog_manager, timer_key, 90, on_logistics_q2_timeout)
     return {"question_text": LOGISTICS_QUESTIONS[2]["text"]}
 
 async def get_logistics_q3_data(**kwargs):
@@ -55,10 +59,12 @@ async def get_logistics_q3_data(**kwargs):
     if dialog_manager and hasattr(dialog_manager, 'current_context'):
         current_state = dialog_manager.current_context().state
         if current_state == LogisticsTestSG.q3:
-            if not dialog_manager.dialog_data.get("logistics_q3_timer_started"):
+            timer_key = "logistics_q3"
+            if (not dialog_manager.dialog_data.get(f"{timer_key}_timer_started") and 
+                not dialog_manager.dialog_data.get(f"{timer_key}_stopped")):
                 logger.debug("🔧 DEBUG: Запуск таймера для логистики вопроса 3 из геттера")
-                dialog_manager.dialog_data["logistics_q3_timer_started"] = True
-                await start_timer_background(dialog_manager, "logistics_q3", 120, on_logistics_q3_timeout)
+                dialog_manager.dialog_data[f"{timer_key}_timer_started"] = True
+                await start_timer_background(dialog_manager, timer_key, 120, on_logistics_q3_timeout)
     return {"question_text": LOGISTICS_QUESTIONS[3]["text"]}
 
 async def get_logistics_q4_data(**kwargs):
@@ -66,10 +72,12 @@ async def get_logistics_q4_data(**kwargs):
     if dialog_manager and hasattr(dialog_manager, 'current_context'):
         current_state = dialog_manager.current_context().state
         if current_state == LogisticsTestSG.q4:
-            if not dialog_manager.dialog_data.get("logistics_q4_timer_started"):
+            timer_key = "logistics_q4"
+            if (not dialog_manager.dialog_data.get(f"{timer_key}_timer_started") and 
+                not dialog_manager.dialog_data.get(f"{timer_key}_stopped")):
                 logger.debug("🔧 DEBUG: Запуск таймера для логистики вопроса 4 из геттера")
-                dialog_manager.dialog_data["logistics_q4_timer_started"] = True
-                await start_timer_background(dialog_manager, "logistics_q4", 60, on_logistics_q4_timeout)
+                dialog_manager.dialog_data[f"{timer_key}_timer_started"] = True
+                await start_timer_background(dialog_manager, timer_key, 60, on_logistics_q4_timeout)
     return {"question_text": LOGISTICS_QUESTIONS[4]["text"]}
 
 async def get_logistics_q5_data(**kwargs):
@@ -77,10 +85,12 @@ async def get_logistics_q5_data(**kwargs):
     if dialog_manager and hasattr(dialog_manager, 'current_context'):
         current_state = dialog_manager.current_context().state
         if current_state == LogisticsTestSG.q5:
-            if not dialog_manager.dialog_data.get("logistics_q5_timer_started"):
+            timer_key = "logistics_q5"
+            if (not dialog_manager.dialog_data.get(f"{timer_key}_timer_started") and 
+                not dialog_manager.dialog_data.get(f"{timer_key}_stopped")):
                 logger.debug("🔧 DEBUG: Запуск таймера для логистики вопроса 5 из геттера")
-                dialog_manager.dialog_data["logistics_q5_timer_started"] = True
-                await start_timer_background(dialog_manager, "logistics_q5", 90, on_logistics_q5_timeout)
+                dialog_manager.dialog_data[f"{timer_key}_timer_started"] = True
+                await start_timer_background(dialog_manager, timer_key, 90, on_logistics_q5_timeout)
     return {"question_text": LOGISTICS_QUESTIONS[5]["text"]}
 
 async def get_logistics_q6_data(**kwargs):
@@ -88,10 +98,12 @@ async def get_logistics_q6_data(**kwargs):
     if dialog_manager and hasattr(dialog_manager, 'current_context'):
         current_state = dialog_manager.current_context().state
         if current_state == LogisticsTestSG.q6:
-            if not dialog_manager.dialog_data.get("logistics_q6_timer_started"):
+            timer_key = "logistics_q6"
+            if (not dialog_manager.dialog_data.get(f"{timer_key}_timer_started") and 
+                not dialog_manager.dialog_data.get(f"{timer_key}_stopped")):
                 logger.debug("🔧 DEBUG: Запуск таймера для логистики вопроса 6 из геттера")
-                dialog_manager.dialog_data["logistics_q6_timer_started"] = True
-                await start_timer_background(dialog_manager, "logistics_q6", 60, on_logistics_q6_timeout)
+                dialog_manager.dialog_data[f"{timer_key}_timer_started"] = True
+                await start_timer_background(dialog_manager, timer_key, 60, on_logistics_q6_timeout)
     return {"question_text": LOGISTICS_QUESTIONS[6]["text"]}
 
 
@@ -130,10 +142,15 @@ async def save_logistics_answer_and_proceed(dialog_manager: DialogManager, quest
     """Сохранить ответ и перейти к следующему вопросу"""
     logger.info(f"🔧 DEBUG: save_logistics_answer_and_proceed вызвана для вопроса {question_num} с ответом '{answer}'")
     try:
-        # Останавливаем таймер
+        # Останавливаем таймер только один раз
         timer_key = f"logistics_q{question_num}"
-        await stop_timer(dialog_manager, timer_key)
-        logger.info(f"🔧 DEBUG: Таймер {timer_key} остановлен")
+        
+        # Проверяем, не остановлен ли уже таймер
+        if not dialog_manager.dialog_data.get(f"{timer_key}_stopped", False):
+            await stop_timer(dialog_manager, timer_key)
+            logger.info(f"🔧 DEBUG: Таймер {timer_key} остановлен")
+        else:
+            logger.info(f"🔧 DEBUG: Таймер {timer_key} уже был остановлен ранее")
         
         # Вычисляем время ответа
         time_taken = calculate_time_taken(dialog_manager, timer_key)

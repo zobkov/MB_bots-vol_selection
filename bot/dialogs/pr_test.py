@@ -9,7 +9,7 @@ from aiogram_dialog.widgets.text import Const, Format
 from aiogram_dialog.widgets.input import TextInput
 
 from bot.states import PRTestSG, TestingSG
-from bot.dialogs.timer_utils import timer_manager, get_timer_progress_data, create_timer_display, calculate_time_taken
+from bot.dialogs.timer_utils import get_timer_progress_data, create_timer_display, calculate_time_taken, start_timer_background, stop_timer
 from database.repositories import UserRepository, DepartmentTestRepository
 from database.db import Database
 from bot.dialogs.checkpoint_utils import save_department_completion_checkpoint_with_session
@@ -19,19 +19,69 @@ logger = logging.getLogger(__name__)
 
 
 # Async геттеры для вопросов pr
-async def get_pr_q1_data(**kwargs):
+async def get_pr_q1_data(dialog_manager: DialogManager = None, **kwargs):
+    logger.debug(f"get_pr_q1_data called with dialog_manager: {dialog_manager}")
+    
+    # Запускаем таймер если он еще не запущен
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        state = dialog_manager.current_context().state
+        logger.debug(f"Current state: {state}")
+        if state == PRTestSG.q1:
+            logger.debug("Starting timer for pr_q1")
+            await start_timer_background(dialog_manager, "pr_q1", 60)
+    
     return {"question_text": PR_QUESTIONS[1]["text"]}
 
-async def get_pr_q2_data(**kwargs):
+async def get_pr_q2_data(dialog_manager: DialogManager = None, **kwargs):
+    logger.debug(f"get_pr_q2_data called with dialog_manager: {dialog_manager}")
+    
+    # Запускаем таймер если он еще не запущен
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        state = dialog_manager.current_context().state
+        logger.debug(f"Current state: {state}")
+        if state == PRTestSG.q2:
+            logger.debug("Starting timer for pr_q2")
+            await start_timer_background(dialog_manager, "pr_q2", 120)
+    
     return {"question_text": PR_QUESTIONS[2]["text"]}
 
-async def get_pr_q3_data(**kwargs):
+async def get_pr_q3_data(dialog_manager: DialogManager = None, **kwargs):
+    logger.debug(f"get_pr_q3_data called with dialog_manager: {dialog_manager}")
+    
+    # Запускаем таймер если он еще не запущен
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        state = dialog_manager.current_context().state
+        logger.debug(f"Current state: {state}")
+        if state == PRTestSG.q3:
+            logger.debug("Starting timer for pr_q3")
+            await start_timer_background(dialog_manager, "pr_q3", 90)
+    
     return {"question_text": PR_QUESTIONS[3]["text"]}
 
-async def get_pr_q4_data(**kwargs):
+async def get_pr_q4_data(dialog_manager: DialogManager = None, **kwargs):
+    logger.debug(f"get_pr_q4_data called with dialog_manager: {dialog_manager}")
+    
+    # Запускаем таймер если он еще не запущен
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        state = dialog_manager.current_context().state
+        logger.debug(f"Current state: {state}")
+        if state == PRTestSG.q4:
+            logger.debug("Starting timer for pr_q4")
+            await start_timer_background(dialog_manager, "pr_q4", 30)
+    
     return {"question_text": PR_QUESTIONS[4]["text"]}
 
-async def get_pr_q5_data(**kwargs):
+async def get_pr_q5_data(dialog_manager: DialogManager = None, **kwargs):
+    logger.debug(f"get_pr_q5_data called with dialog_manager: {dialog_manager}")
+    
+    # Запускаем таймер если он еще не запущен
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        state = dialog_manager.current_context().state
+        logger.debug(f"Current state: {state}")
+        if state == PRTestSG.q5:
+            logger.debug("Starting timer for pr_q5")
+            await start_timer_background(dialog_manager, "pr_q5", 90)
+    
     return {"question_text": PR_QUESTIONS[5]["text"]}
 
 
@@ -60,9 +110,10 @@ PR_QUESTIONS = {
 
 async def save_pr_answer_and_proceed(dialog_manager: DialogManager, question_num: int, answer: str):
     """Сохранить ответ и перейти к следующему вопросу"""
+    logger.debug(f"save_pr_answer_and_proceed called with question_num: {question_num}, answer: {answer}")
     try:
         timer_key = f"pr_q{question_num}"
-        await timer_manager.stop_timer(timer_key)
+        await stop_timer(dialog_manager, timer_key)
         
         time_taken = calculate_time_taken(dialog_manager, timer_key)
         is_timeout = dialog_manager.dialog_data.get(f"{timer_key}_timeout", False)
@@ -127,15 +178,19 @@ async def save_pr_answer_and_proceed(dialog_manager: DialogManager, question_num
 
 # Обработчики ввода
 async def on_pr_q1_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.debug(f"on_pr_q1_input called with text: {text}")
     await save_pr_answer_and_proceed(dialog_manager, 1, text)
 
 async def on_pr_q2_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.debug(f"on_pr_q2_input called with text: {text}")
     await save_pr_answer_and_proceed(dialog_manager, 2, text)
 
 async def on_pr_q3_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.debug(f"on_pr_q3_input called with text: {text}")
     await save_pr_answer_and_proceed(dialog_manager, 3, text)
 
 async def on_pr_q4_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.debug(f"on_pr_q4_input called with text: {text}")
     await save_pr_answer_and_proceed(dialog_manager, 4, text)
 
 
@@ -153,18 +208,7 @@ async def on_pr_q4_timeout(dialog_manager: DialogManager, timer_key: str):
     await save_pr_answer_and_proceed(dialog_manager, 4, "")
 
 
-# Функции запуска таймеров
-async def start_pr_timer_q1(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "pr_q1", 60, on_pr_q1_timeout)
-
-async def start_pr_timer_q2(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "pr_q2", 120, on_pr_q2_timeout)
-
-async def start_pr_timer_q3(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "pr_q3", 90, on_pr_q3_timeout)
-
-async def start_pr_timer_q4(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "pr_q4", 30, on_pr_q4_timeout)
+# Функции запуска таймеров удалены - таймеры запускаются через геттеры
 
 
 async def on_back_to_departments(callback: CallbackQuery, button: Button, dialog_manager: DialogManager):
@@ -178,7 +222,6 @@ pr_test_dialog = Dialog(
         TextInput(id="pr_q1_input", on_success=on_pr_q1_input),
         state=PRTestSG.q1,
         getter=[get_pr_q1_data, get_timer_progress_data("pr_q1")],
-        on_process_result=start_pr_timer_q1,
     ),
     Window(
         Format("📰 <b>PR - Вопрос 2/4</b>\n\n{question_text}\n\n(Время на ответ: 120 секунд)"),
@@ -186,7 +229,6 @@ pr_test_dialog = Dialog(
         TextInput(id="pr_q2_input", on_success=on_pr_q2_input),
         state=PRTestSG.q2,
         getter=[get_pr_q2_data, get_timer_progress_data("pr_q2")],
-        on_process_result=start_pr_timer_q2,
     ),
     Window(
         Format("📰 <b>PR - Вопрос 3/4</b>\n\n{question_text}\n\n(Время на ответ: 90 секунд)"),
@@ -194,7 +236,6 @@ pr_test_dialog = Dialog(
         TextInput(id="pr_q3_input", on_success=on_pr_q3_input),
         state=PRTestSG.q3,
         getter=[get_pr_q3_data, get_timer_progress_data("pr_q3")],
-        on_process_result=start_pr_timer_q3,
     ),
     Window(
         Format("📰 <b>PR - Вопрос 4/4</b>\n\n{question_text}\n\n(Время на ответ: 30 секунд)"),
@@ -202,7 +243,6 @@ pr_test_dialog = Dialog(
         TextInput(id="pr_q4_input", on_success=on_pr_q4_input),
         state=PRTestSG.q4,
         getter=[get_pr_q4_data, get_timer_progress_data("pr_q4")],
-        on_process_result=start_pr_timer_q4,
     ),
     Window(
         Const("🎉 <b>Огонь, ты закончил(а) опрос для отдела PR!</b>\n\n"

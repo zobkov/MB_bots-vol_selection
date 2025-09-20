@@ -9,7 +9,7 @@ from aiogram_dialog.widgets.text import Const, Format
 from aiogram_dialog.widgets.input import TextInput
 
 from bot.states import MarketingTestSG, TestingSG
-from bot.dialogs.timer_utils import timer_manager, get_timer_progress_data, create_timer_display, calculate_time_taken
+from bot.dialogs.timer_utils import get_timer_progress_data, create_timer_display, calculate_time_taken, start_timer_background, stop_timer
 from bot.dialogs.checkpoint_utils import save_department_completion_checkpoint_with_session
 from database.repositories import UserRepository, DepartmentTestRepository
 from database.db import Database
@@ -19,19 +19,51 @@ logger = logging.getLogger(__name__)
 
 
 # Async геттеры для вопросов marketing
-async def get_marketing_q1_data(**kwargs):
+async def get_marketing_q1_data(dialog_manager: DialogManager = None, **kwargs):
+    logger.debug(f"get_marketing_q1_data called with dialog_manager: {dialog_manager}")
+    
+    # Запускаем таймер если он еще не запущен
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        state = dialog_manager.current_context().state
+        logger.debug(f"Current state: {state}")
+        if state == MarketingTestSG.q1:
+            logger.debug("Starting timer for marketing_q1")
+            await start_timer_background(dialog_manager, "marketing_q1", 120)
+    
     return {"question_text": MARKETING_QUESTIONS[1]["text"]}
 
-async def get_marketing_q2_data(**kwargs):
+async def get_marketing_q2_data(dialog_manager: DialogManager = None, **kwargs):
+    logger.debug(f"get_marketing_q2_data called with dialog_manager: {dialog_manager}")
+    
+    # Запускаем таймер если он еще не запущен
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        state = dialog_manager.current_context().state
+        logger.debug(f"Current state: {state}")
+        if state == MarketingTestSG.q2:
+            logger.debug("Starting timer for marketing_q2")
+            await start_timer_background(dialog_manager, "marketing_q2", 90)
+    
     return {"question_text": MARKETING_QUESTIONS[2]["text"]}
 
-async def get_marketing_q3_data(**kwargs):
+async def get_marketing_q3_data(dialog_manager: DialogManager = None, **kwargs):
+    logger.debug(f"get_marketing_q3_data called with dialog_manager: {dialog_manager}")
+    
+    # Запускаем таймер если он еще не запущен
+    if dialog_manager and hasattr(dialog_manager, 'current_context'):
+        state = dialog_manager.current_context().state
+        logger.debug(f"Current state: {state}")
+        if state == MarketingTestSG.q3:
+            logger.debug("Starting timer for marketing_q3")
+            await start_timer_background(dialog_manager, "marketing_q3", 60)
+    
     return {"question_text": MARKETING_QUESTIONS[3]["text"]}
 
-async def get_marketing_q4_data(**kwargs):
+async def get_marketing_q4_data(dialog_manager: DialogManager = None, **kwargs):
+    logger.debug(f"get_marketing_q4_data called - no timer for q4 (unlimited time)")
     return {"question_text": MARKETING_QUESTIONS[4]["text"]}
 
-async def get_marketing_q5_data(**kwargs):
+async def get_marketing_q5_data(dialog_manager: DialogManager = None, **kwargs):
+    logger.debug(f"get_marketing_q5_data called - no timer for q5 (unlimited time)")
     return {"question_text": MARKETING_QUESTIONS[5]["text"]}
 
 
@@ -63,11 +95,12 @@ MARKETING_QUESTIONS = {
 
 async def save_marketing_answer_and_proceed(dialog_manager: DialogManager, question_num: int, answer: str):
     """Сохранить ответ и перейти к следующему вопросу"""
+    logger.debug(f"save_marketing_answer_and_proceed called with question_num: {question_num}, answer: {answer}")
     try:
         # Для вопросов 4 и 5 таймера нет
         if question_num <= 3:
             timer_key = f"marketing_q{question_num}"
-            await timer_manager.stop_timer(timer_key)
+            await stop_timer(dialog_manager, timer_key)
             time_taken = calculate_time_taken(dialog_manager, timer_key)
             is_timeout = dialog_manager.dialog_data.get(f"{timer_key}_timeout", False)
         else:
@@ -126,18 +159,23 @@ async def save_marketing_answer_and_proceed(dialog_manager: DialogManager, quest
 
 # Обработчики ввода
 async def on_marketing_q1_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.debug(f"on_marketing_q1_input called with text: {text}")
     await save_marketing_answer_and_proceed(dialog_manager, 1, text)
 
 async def on_marketing_q2_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.debug(f"on_marketing_q2_input called with text: {text}")
     await save_marketing_answer_and_proceed(dialog_manager, 2, text)
 
 async def on_marketing_q3_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.debug(f"on_marketing_q3_input called with text: {text}")
     await save_marketing_answer_and_proceed(dialog_manager, 3, text)
 
 async def on_marketing_q4_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.debug(f"on_marketing_q4_input called with text: {text}")
     await save_marketing_answer_and_proceed(dialog_manager, 4, text)
 
 async def on_marketing_q5_input(message: Message, widget, dialog_manager: DialogManager, text: str):
+    logger.debug(f"on_marketing_q5_input called with text: {text}")
     await save_marketing_answer_and_proceed(dialog_manager, 5, text)
 
 
@@ -152,15 +190,7 @@ async def on_marketing_q3_timeout(dialog_manager: DialogManager, timer_key: str)
     await save_marketing_answer_and_proceed(dialog_manager, 3, "")
 
 
-# Функции запуска таймеров (только для первых 3 вопросов)
-async def start_marketing_timer_q1(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "marketing_q1", 120, on_marketing_q1_timeout)
-
-async def start_marketing_timer_q2(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "marketing_q2", 90, on_marketing_q2_timeout)
-
-async def start_marketing_timer_q3(dialog_manager: DialogManager, **kwargs):
-    await timer_manager.start_timer(dialog_manager, "marketing_q3", 60, on_marketing_q3_timeout)
+# Функции запуска таймеров удалены - таймеры запускаются через геттеры
 
 
 async def on_back_to_departments(callback: CallbackQuery, button: Button, dialog_manager: DialogManager):
@@ -175,7 +205,6 @@ marketing_test_dialog = Dialog(
         TextInput(id="marketing_q1_input", on_success=on_marketing_q1_input),
         state=MarketingTestSG.q1,
         getter=[get_marketing_q1_data, get_timer_progress_data("marketing_q1")],
-        on_process_result=start_marketing_timer_q1,
     ),
     
     # Вопрос 2 (90 секунд)
@@ -185,7 +214,6 @@ marketing_test_dialog = Dialog(
         TextInput(id="marketing_q2_input", on_success=on_marketing_q2_input),
         state=MarketingTestSG.q2,
         getter=[get_marketing_q2_data, get_timer_progress_data("marketing_q2")],
-        on_process_result=start_marketing_timer_q2,
     ),
     
     # Вопрос 3 (60 секунд)
@@ -195,7 +223,6 @@ marketing_test_dialog = Dialog(
         TextInput(id="marketing_q3_input", on_success=on_marketing_q3_input),
         state=MarketingTestSG.q3,
         getter=[get_marketing_q3_data, get_timer_progress_data("marketing_q3")],
-        on_process_result=start_marketing_timer_q3,
     ),
     
     # Вопрос 4 (без таймера - для копирайтеров)
