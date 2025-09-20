@@ -138,10 +138,62 @@ async def on_department_select(callback: CallbackQuery, widget, dialog_manager: 
 
 async def on_testing_complete(callback: CallbackQuery, button, dialog_manager: DialogManager):
     """Завершение всего тестирования"""
-    logger.info(f"Testing completed for user {callback.from_user.id}")
-    # Возвращаемся к основному меню или следующему этапу
-    from bot.states import MenuSG
-    await dialog_manager.start(MenuSG.main, mode=StartMode.RESET_STACK)
+    try:
+        telegram_id = callback.from_user.id
+        logger.info(f"Testing completion attempt for user {telegram_id}")
+        
+        # Получаем доступ к базе данных
+        db = dialog_manager.middleware_data.get("db")
+        if not db:
+            logger.error("Database not found in middleware")
+            await callback.answer("❌ Ошибка доступа к базе данных", show_alert=True)
+            return
+            
+        session = await db.get_session()
+        try:
+            user_repo = UserRepository(session)
+            stage2_repo = Stage2Repository(session)
+            dept_repo = DepartmentTestRepository(session)
+            
+            # Получаем пользователя
+            user = await user_repo.get_user_by_telegram_id(telegram_id)
+            if not user:
+                logger.error(f"User not found for telegram_id: {telegram_id}")
+                await callback.answer("❌ Пользователь не найден", show_alert=True)
+                return
+            
+            # Проверяем завершение общих вопросов (в обеих системах)
+            general_completed_old = await stage2_repo.is_general_questions_completed(user.id)
+            general_completed_new = await dept_repo.is_department_completed(user.id, "general")
+            general_completed = general_completed_old or general_completed_new
+            
+            logger.debug(f"General questions completion check for user {telegram_id}: "
+                        f"old_system={general_completed_old}, new_system={general_completed_new}, "
+                        f"final={general_completed}")
+            
+            # Если общие вопросы не пройдены - не позволяем завершить
+            if not general_completed:
+                logger.warning(f"User {telegram_id} tried to complete testing without finishing general questions")
+                await callback.answer("❌ Сначала необходимо пройти общие вопросы", show_alert=True)
+                return
+            
+            # Устанавливаем флаг завершения второго этапа
+            await user_repo.update_stage2_submitted(telegram_id, True)
+            logger.info(f"Stage 2 marked as submitted for user {telegram_id}")
+            
+            # Уведомляем пользователя об успешном завершении
+            await callback.answer("✅ Тестирование успешно завершено!", show_alert=True)
+            
+            # Возвращаемся к основному меню
+            from bot.states import MenuSG
+            await dialog_manager.start(MenuSG.main, mode=StartMode.RESET_STACK)
+            
+        finally:
+            await session.close()
+            
+    except Exception as e:
+        logger.error(f"Error in testing completion for user {callback.from_user.id}: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка при завершении тестирования", show_alert=True)
 
 
 # Создание диалога выбора отделов тестирования

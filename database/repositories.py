@@ -58,6 +58,32 @@ class UserRepository:
             log_error(e, "Ошибка при обновлении статуса этапа 1", telegram_id)
             raise
 
+    async def update_stage2_submitted(self, telegram_id: int, submitted: bool = True):
+        """Обновить статус завершения второго этапа"""
+        try:
+            await self.session.execute(
+                update(User)
+                .where(User.telegram_id == telegram_id)
+                .values(stage2_submitted=submitted)
+            )
+            await self.session.commit()
+            log_db_operation("UPDATE", "users", f"stage2_submitted updated to {submitted}", telegram_id)
+        except Exception as e:
+            log_error(e, "Ошибка при обновлении статуса этапа 2", telegram_id)
+            raise
+
+    async def is_stage2_submitted(self, telegram_id: int) -> bool:
+        """Проверить, завершен ли второй этап"""
+        try:
+            result = await self.session.execute(
+                select(User.stage2_submitted).where(User.telegram_id == telegram_id)
+            )
+            stage2_submitted = result.scalar_one_or_none()
+            return stage2_submitted if stage2_submitted is not None else False
+        except Exception as e:
+            log_error(e, "Ошибка при проверке статуса этапа 2", telegram_id)
+            return False
+
     async def get_user_by_telegram_id(self, telegram_id: int) -> Optional[User]:
         """Получить пользователя по telegram_id"""
         result = await self.session.execute(

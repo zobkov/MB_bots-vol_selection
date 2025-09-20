@@ -33,14 +33,28 @@ async def save_department_completion_checkpoint(dialog_manager: DialogManager, d
         logger.error(f"Error saving {department_name} department completion checkpoint: {e}")
 
 
-async def save_department_completion_checkpoint_with_session(user_id: int, department_name: str, session):
-    """Сохранение чекпоинта завершения тестирования отдела с готовой сессией"""
+async def save_department_completion_checkpoint_with_session(dialog_manager: DialogManager, department_name: str):
+    """Сохранение чекпоинта завершения тестирования отдела с сессией из dialog_manager"""
     try:
-        dept_repo = DepartmentTestRepository(session)
-        await dept_repo.complete_test(user_id, department_name)
-        logger.info(f"Checkpoint: {department_name} department test completed for user {user_id}")
+        db: Database = dialog_manager.middleware_data.get("db")
+        if not db:
+            logger.error("Database not found in middleware_data")
+            return
+        
+        user_id = dialog_manager.event.from_user.id
+        session = await db.get_session()
+        try:
+            dept_repo = DepartmentTestRepository(session)
+            user_repo = UserRepository(session)
+            user = await user_repo.get_user_by_telegram_id(user_id)
+            if user:
+                await dept_repo.complete_test(user.id, department_name)
+                await session.commit()
+                logger.info(f"Checkpoint: {department_name} department test completed for user {user_id}")
+        finally:
+            await session.close()
     except Exception as e:
-        logger.error(f"Error saving {department_name} department completion checkpoint: {e}")
+        logger.error(f"Error saving {department_name} department completion checkpoint: {e}", exc_info=True)
 
 
 async def save_general_questions_completion_checkpoint(dialog_manager: DialogManager):

@@ -17,6 +17,7 @@ class User(Base):
     is_alive: Mapped[bool] = mapped_column(Boolean, default=True)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     stage1_submitted: Mapped[str] = mapped_column(String(20), default='not_submitted')  # 'submitted', 'not_submitted'
+    stage2_submitted: Mapped[bool] = mapped_column(Boolean, default=False)  # Завершен ли второй этап
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

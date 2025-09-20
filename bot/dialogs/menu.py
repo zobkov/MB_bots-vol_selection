@@ -27,28 +27,40 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
             telegram_username=user.username
         )
         
-        is_submitted = db_user.stage1_submitted == "submitted"
-        status_text = "Заявка подана" if is_submitted else "Заявка не подана"
-        if is_submitted:
+        is_stage1_submitted = db_user.stage1_submitted == "submitted"
+        is_stage2_submitted = db_user.stage2_submitted
+        
+        # Формируем статус заявки первого этапа
+        stage1_status_text = "Заявка подана" if is_stage1_submitted else "Заявка не подана"
+        if is_stage1_submitted:
             # Если заявка подана - показываем когда придут результаты
-            additional_info = f"\n📊 Результаты придут: {config.selection.stages['stage1']['results_date']}"
+            stage1_additional_info = f"\n📊 Результаты придут: {config.selection.stages['stage1']['results_date']}"
         else:
             # Если заявка не подана - показываем дедлайн
-            additional_info = f"\n⏰ Дедлайн: {config.selection.stages['stage1']['deadline']}"
+            stage1_additional_info = f"\n⏰ Дедлайн: {config.selection.stages['stage1']['deadline']}"
+        
+        # Формируем статус второго этапа
+        stage2_status_text = "Тестирование завершено" if is_stage2_submitted else "Тестирование не пройдено"
+        
+        # Определяем доступность кнопки второго этапа
+        stage2_available = not is_stage2_submitted
+        
     finally:
         await session.close()
     
     menu_text = f"""🏠 Личный кабинет кандидата в команду волонтеров МБ 2025 - тест второго этапа
 
-📅 Текущий этап: {config.selection.stages['stage1']['name']}
-📝 Статус заявки: {status_text}\n{additional_info}
+📅 Первый этап: Анкетирование
+📝 Статус заявки: {stage1_status_text}{stage1_additional_info}
 
-
-📋 Следующий этап: {config.selection.stages['stage2']['name']}
-🚀 Начало: {config.selection.stages['stage2']['start_date']}"""
+📋 Второй этап: Тестирование
+🚀 Конец: 25 октября
+📝 Статус: {stage2_status_text}"""
 
     return {
-        "menu_text": menu_text
+        "menu_text": menu_text,
+        "stage2_available": stage2_available,
+        "stage2_completed": is_stage2_submitted
     }
 
 
@@ -74,9 +86,14 @@ menu_dialog = Dialog(
     Window(
         Format("{menu_text}"),
         Start(
-            Const("📝 Перейтки ко второму этапу"),
+            Const("📝 Перейти ко второму этапу"),
             id="fill_application",
-            state=Stage2SG.start
+            state=Stage2SG.start,
+            when="stage2_available"
+        ),
+        Format(
+            "\n✅ <b>Второй этап завершен!</b>\nПовторное прохождение недоступно.",
+            when="stage2_completed"
         ),
         SwitchTo(
             Const("📞 Поддержка"),
