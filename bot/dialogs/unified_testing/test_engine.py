@@ -187,8 +187,15 @@ class TestEngine:
                     if saved:
                         logger.info(f"Timeout answer recorded for {config.test_type} q{question_num}")
 
-            # Переход к следующему окну (или к completed)
-            await bg_manager.next()
+            # Переход к следующему состоянию через bg_manager.switch_to
+            try:
+                if question_num < len(config.questions):
+                    next_state = getattr(config.states_group, f"q{question_num+1}")
+                else:
+                    next_state = getattr(config.states_group, "completed")
+                await bg_manager.switch_to(next_state)
+            except Exception as trans_err:
+                logger.error(f"Timeout transition error for {timer_key}: {trans_err}", exc_info=True)
         except Exception as e:
             logger.error(f"Error handling timeout for {timer_key}: {e}", exc_info=True)
     
