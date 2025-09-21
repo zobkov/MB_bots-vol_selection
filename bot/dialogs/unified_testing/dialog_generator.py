@@ -184,10 +184,15 @@ class UniversalTestDialogGenerator:
                         # Проверяем, не запущен ли уже таймер
                         user_id = dialog_manager.event.from_user.id
                         timer_key = test_engine.get_user_timer_key(user_id, config.test_type, question.number)
-                        timer_active_in_manager = test_engine.timer_manager._is_timer_active(user_id, timer_key)
+                        timer_active_in_manager = test_engine.timer_manager._is_timer_active(dialog_manager, timer_key)
                         if not timer_active_in_manager:
                             logger.debug(f"Starting timer for {config.test_type} question {question.number}")
                             await test_engine.start_question_timer(dialog_manager, config, question)
+                            
+                            # Запускаем автообновление диалога для обновления прогресса таймера
+                            from .enhanced_scheduler_timer_utils import start_dialog_auto_update
+                            await start_dialog_auto_update(dialog_manager, interval=2.0)
+                            logger.debug(f"Auto-update started for {config.test_type} question {question.number}")
             
             return {
                 "question_text": question.text,
@@ -233,6 +238,11 @@ class UniversalTestDialogGenerator:
             
             # Записываем ответ в память. Даже если был таймаут почти одновременно, save_answer вернёт False
             saved = await test_engine.save_answer(dialog_manager, config, question.number, text)
+            
+            # Останавливаем автообновление диалога
+            from .enhanced_scheduler_timer_utils import stop_dialog_auto_update
+            await stop_dialog_auto_update(dialog_manager)
+            logger.debug(f"Auto-update stopped for {config.test_type} question {question.number}")
             
             # Переходим к следующему вопросу или к завершению
             # Переход делаем только если по-прежнему на ожидаемом окне (OutdatedIntent защита)

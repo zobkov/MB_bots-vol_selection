@@ -38,6 +38,67 @@ class TimerStats:
     user_jobs: Dict[int, int]  # user_id -> job_count
 
 
+# Independent timeout handler function (not a class method)
+async def _handle_question_timeout_independent(config_dict: Dict[str, Any]) -> None:
+    """
+    Independent handler for question timeout
+    
+    Args:
+        config_dict: Timer configuration as dictionary (serializable)
+    """
+    try:
+        # Recreate TimerConfig from dict
+        config = TimerConfig(**config_dict)
+        job_id = f"timer_{config.user_id}_{config.test_type}_q{config.question_number}"
+        
+        logger.info(f"Question timeout triggered: {job_id}")
+        
+        # Send timeout notification to user
+        await _send_timeout_notification_independent(config)
+        
+    except Exception as e:
+        logger.error(f"Error in timeout handler: {e}", exc_info=True)
+
+
+async def _send_timeout_notification_independent(config: TimerConfig) -> None:
+    """
+    Independent function to send timeout notification to user
+    
+    Args:
+        config: Timer configuration
+    """
+    try:
+        bot = Bot(token=config.bot_token)
+        
+        message = (
+            f"⏰ <b>Время вышло!</b>\n\n"
+            f"Время на вопрос {config.question_number} в тесте "
+            f"<b>{config.test_type}</b> истекло.\n\n"
+            f"Переходим к следующему вопросу..."
+        )
+        
+        await bot.send_message(
+            chat_id=config.chat_id,
+            text=message,
+            parse_mode="HTML"
+        )
+        
+        logger.info(f"Timeout notification sent to user {config.user_id}")
+        
+    except TelegramBadRequest as e:
+        if "chat not found" in str(e).lower():
+            logger.warning(f"Chat {config.chat_id} not found for timeout notification")
+        else:
+            logger.error(f"Telegram error sending timeout notification: {e}")
+    except Exception as e:
+        logger.error(f"Failed to send timeout notification: {e}", exc_info=True)
+    finally:
+        try:
+            await bot.session.close()
+        except:
+            pass
+
+
 class APSchedulerTimerManager:
     """
     APScheduler-based timer manager with Redis persistence
@@ -164,11 +225,21 @@ class APSchedulerTimerManager:
             if timeout_callback:
                 self._timeout_callbacks[job_id] = timeout_callback
             
+            # Convert TimerConfig to dict for serialization
+            config_dict = {
+                'user_id': config.user_id,
+                'chat_id': config.chat_id,
+                'test_type': config.test_type,
+                'question_number': config.question_number,
+                'time_limit': config.time_limit,
+                'bot_token': config.bot_token
+            }
+            
             job = self.scheduler.add_job(
-                func=self._handle_question_timeout,
+                func=_handle_question_timeout_independent,
                 trigger='date',
                 run_date=run_time,
-                args=[config, timeout_callback],
+                args=[config_dict],
                 id=job_id,
                 replace_existing=True,
                 misfire_grace_time=30
@@ -339,80 +410,6 @@ class APSchedulerTimerManager:
         except Exception as e:
             logger.error(f"Failed to get timer stats: {e}", exc_info=True)
             return TimerStats(0, 0, 0, {})
-    
-    async def _handle_question_timeout(
-        self,
-        config: TimerConfig,
-        timeout_callback: Optional[Callable] = None
-    ) -> None:
-        """
-        Internal handler for question timeout
-        
-        Args:
-            config: Timer configuration
-            timeout_callback: Optional custom callback
-        """
-        job_id = self._generate_job_id(config)
-        
-        try:
-            logger.info(f"Question timeout triggered: {job_id}")
-            
-            # Send timeout notification to user
-            await self._send_timeout_notification(config)
-            
-            # Execute custom callback if provided
-            if timeout_callback:
-                try:
-                    if asyncio.iscoroutinefunction(timeout_callback):
-                        await timeout_callback(config)
-                    else:
-                        timeout_callback(config)
-                except Exception as callback_error:
-                    logger.error(f"Timeout callback error for {job_id}: {callback_error}", exc_info=True)
-            
-            # Clean up callback reference
-            self._timeout_callbacks.pop(job_id, None)
-            
-        except Exception as e:
-            logger.error(f"Error in timeout handler for {job_id}: {e}", exc_info=True)
-    
-    async def _send_timeout_notification(self, config: TimerConfig) -> None:
-        """
-        Send timeout notification to user
-        
-        Args:
-            config: Timer configuration
-        """
-        try:
-            bot = Bot(token=config.bot_token)
-            
-            message = (
-                f"⏰ <b>Время вышло!</b>\n\n"
-                f"Время на вопрос {config.question_number} в тесте "
-                f"<b>{config.test_type}</b> истекло.\n\n"
-                f"Переходим к следующему вопросу..."
-            )
-            
-            await bot.send_message(
-                chat_id=config.chat_id,
-                text=message,
-                parse_mode="HTML"
-            )
-            
-            logger.info(f"Timeout notification sent to user {config.user_id}")
-            
-        except TelegramBadRequest as e:
-            if "chat not found" in str(e).lower():
-                logger.warning(f"Chat {config.chat_id} not found for timeout notification")
-            else:
-                logger.error(f"Telegram error sending timeout notification: {e}")
-        except Exception as e:
-            logger.error(f"Failed to send timeout notification: {e}", exc_info=True)
-        finally:
-            try:
-                await bot.session.close()
-            except:
-                pass
     
     def _on_job_executed(self, event) -> None:
         """Event listener for job execution monitoring"""

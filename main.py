@@ -24,6 +24,7 @@ from utils.google_services import setup_google_sheets_service
 from utils.scheduler_utils import init_scheduler_manager, shutdown_scheduler_manager
 from bot.dialogs.unified_testing.test_engine import set_global_database
 from bot.dialogs.unified_testing.enhanced_scheduler_timer_utils import migrate_old_timers_to_scheduler
+from bot.dialogs.unified_testing.timer_service_v2 import init_dialog_timer_service, shutdown_dialog_timer_service
 
 
 async def main():
@@ -88,10 +89,15 @@ async def main():
             scheduler_manager = await init_scheduler_manager(redis_config)
             logger.info("⏰ APScheduler timer system initialized")
             
+            # Инициализируем новую систему таймеров диалогов
+            dialog_timer_service = await init_dialog_timer_service(bot, redis_config)
+            logger.info("🎯 Dialog timer service initialized")
+            
             # Выполняем миграцию старой системы таймеров
             await migrate_old_timers_to_scheduler()
         else:
             scheduler_manager = None
+            dialog_timer_service = None
             logger.warning("⚠️ APScheduler disabled in configuration")
         
         # Настраиваем Google Sheets сервис
@@ -149,7 +155,8 @@ async def main():
     finally:
         try:
             # Закрываем соединения
-            await shutdown_scheduler_manager()  # Останавливаем APScheduler первым
+            await shutdown_dialog_timer_service()  # Останавливаем новую систему таймеров
+            await shutdown_scheduler_manager()  # Останавливаем APScheduler
             await db.close()
             await redis_client.aclose()
             await bot.session.close()
