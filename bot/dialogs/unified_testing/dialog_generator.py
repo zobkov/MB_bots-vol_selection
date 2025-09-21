@@ -24,7 +24,58 @@ class UniversalTestDialogGenerator:
         """Создание геттера для конкретного вопроса"""
         async def get_question_data(dialog_manager: DialogManager = None, **kwargs):
             logger.debug(f"Getting data for {config.test_type} question {question.number}")
-            # Обработка аварийного флага перехода после таймаута
+            # 0) Сверхранние проверки завершения/редиректа, чтобы не запускать таймеры лишний раз
+            try:
+                # completion flags
+                completion_pending = dialog_manager.dialog_data.get(f"test_{config.test_type}_completion_pending", False)
+                completion_done = dialog_manager.dialog_data.get(f"test_{config.test_type}_completion_done", False)
+                if completion_pending or completion_done:
+                    await dialog_manager.switch_to(getattr(config.states_group, 'completed'))
+                    return {
+                        "question_text": question.text,
+                        "question_number": question.number,
+                        "total_questions": len(config.questions),
+                        "time_limit": question.time_limit,
+                        "test_display_name": config.display_name,
+                        "test_icon": config.icon
+                    }
+            except Exception as e:
+                logger.debug(f"Early completion flags check failed: {e}")
+
+            # 0.1) Если по этому вопросу уже есть флаг answered (например, после таймаута) — редирект на следующий/завершение
+            try:
+                if dialog_manager:
+                    # Проверяем как user-скоуп ключ, так и короткий ключ без user_id
+                    answered = False
+                    if getattr(dialog_manager, 'event', None):
+                        user_id = dialog_manager.event.from_user.id
+                        timer_key = test_engine.get_user_timer_key(user_id, config.test_type, question.number)
+                        answered_key = f"{timer_key}_answered"
+                        if dialog_manager.dialog_data.get(answered_key):
+                            answered = True
+                    # Короткий ключ работает в бэкграунд-рендерах без event
+                    short_answered_key = f"test_{config.test_type}_q{question.number}_answered"
+                    if dialog_manager.dialog_data.get(short_answered_key):
+                        answered = True
+
+                    if answered:
+                        # Этот вопрос уже закрыт, переходим дальше без запуска таймера
+                        if question.number < len(config.questions):
+                            await dialog_manager.switch_to(getattr(config.states_group, f'q{question.number+1}'))
+                        else:
+                            await dialog_manager.switch_to(getattr(config.states_group, 'completed'))
+                        return {
+                            "question_text": question.text,
+                            "question_number": question.number,
+                            "total_questions": len(config.questions),
+                            "time_limit": question.time_limit,
+                            "test_display_name": config.display_name,
+                            "test_icon": config.icon
+                        }
+            except Exception as e:
+                logger.debug(f"Answered-flag early skip failed: {e}")
+
+            # 1) Обработка аварийного флага перехода после таймаута
             try:
                 advance_key = f"test_{config.test_type}_advance_to"
                 advance_to = dialog_manager.dialog_data.get(advance_key)
@@ -45,7 +96,8 @@ class UniversalTestDialogGenerator:
                     }
             except Exception as e:
                 logger.debug(f"advance_to handling failed: {e}")
-            # Если результаты уже сохранены (persisted), принудительно переводим в completed
+
+            # 2) Если результаты уже сохранены (persisted), принудительно переводим в completed
             try:
                 persisted_key = f"test_{config.test_type}_persisted"
                 if dialog_manager and dialog_manager.dialog_data.get(persisted_key, False):
@@ -64,7 +116,7 @@ class UniversalTestDialogGenerator:
             except Exception as e:
                 logger.debug(f"Completion redirect check failed: {e}")
 
-            # Дополнительная страховка: проверяем прогресс в движке
+            # 3) Дополнительная страховка: проверяем прогресс в движке
             try:
                 if dialog_manager and getattr(dialog_manager, 'event', None):
                     user_id = dialog_manager.event.from_user.id
@@ -105,7 +157,7 @@ class UniversalTestDialogGenerator:
             if question.media_path:
                 await test_engine.send_question_media(dialog_manager, config, question)
             
-            # Если завершение ожидается/выполнено — сразу в completed
+            # Если в процессе где-то установились флаги завершения — перестрахуемся второй раз
             completion_pending = dialog_manager.dialog_data.get(f"test_{config.test_type}_completion_pending", False)
             completion_done = dialog_manager.dialog_data.get(f"test_{config.test_type}_completion_done", False)
             if completion_pending or completion_done:
@@ -120,27 +172,22 @@ class UniversalTestDialogGenerator:
                 }
 
             # Запускаем таймер если находимся в правильном состоянии
-            if dialog_manager and hasattr(dialog_manager, 'current_context'):
+            if dialog_manager and hasattr(dialog_manager, 'current_context') and getattr(dialog_manager, 'event', None):
                 current_state = dialog_manager.current_context().state
                 expected_state = getattr(config.states_group, f'q{question.number}')
                 
                 if current_state == expected_state:
-                    # Проверяем, не запущен ли уже таймер
-                    user_id = dialog_manager.event.from_user.id
-                    timer_key = test_engine.get_user_timer_key(user_id, config.test_type, question.number)
-                    
-                    timer_started_key = f"{timer_key}_timer_started"
-                    timer_stopped_key = f"{timer_key}_stopped"
-                    
-                    # Проверяем и dialog_data и реальное состояние таймера
-                    timer_already_started_in_data = dialog_manager.dialog_data.get(timer_started_key, False)
-                    timer_stopped = dialog_manager.dialog_data.get(timer_stopped_key, False)
-                    timer_active_in_manager = test_engine.timer_manager._is_timer_active(user_id, timer_key)
-                    
-                    if (not timer_already_started_in_data and not timer_stopped and not timer_active_in_manager):
-                        logger.debug(f"Starting timer for {config.test_type} question {question.number}")
-                        dialog_manager.dialog_data[timer_started_key] = True
-                        await test_engine.start_question_timer(dialog_manager, config, question)
+                    # Если уже есть короткий answered-флаг — не стартуем таймер, а редиректим выше
+                    if dialog_manager.dialog_data.get(f"test_{config.test_type}_q{question.number}_answered"):
+                        pass
+                    else:
+                        # Проверяем, не запущен ли уже таймер
+                        user_id = dialog_manager.event.from_user.id
+                        timer_key = test_engine.get_user_timer_key(user_id, config.test_type, question.number)
+                        timer_active_in_manager = test_engine.timer_manager._is_timer_active(user_id, timer_key)
+                        if not timer_active_in_manager:
+                            logger.debug(f"Starting timer for {config.test_type} question {question.number}")
+                            await test_engine.start_question_timer(dialog_manager, config, question)
             
             return {
                 "question_text": question.text,
@@ -158,6 +205,25 @@ class UniversalTestDialogGenerator:
         """Создание обработчика ввода для конкретного вопроса"""
         async def on_input(message: Message, widget, dialog_manager: DialogManager, text: str):
             logger.debug(f"Input received for {config.test_type} q{question.number}: '{text}'")
+            # Текущие состояния и ключи
+            current_state = dialog_manager.current_context().state if hasattr(dialog_manager, 'current_context') else None
+            expected_state = getattr(config.states_group, f'q{question.number}')
+            user_id = dialog_manager.event.from_user.id if getattr(dialog_manager, 'event', None) else None
+            timer_key = test_engine.get_user_timer_key(user_id, config.test_type, question.number) if user_id else None
+            answered_key = f"{timer_key}_answered" if timer_key else None
+
+            # Если этот вопрос уже был закрыт (например, по таймауту) — не дублируем сохранение
+            if answered_key and dialog_manager.dialog_data.get(answered_key):
+                logger.debug(
+                    f"Ignoring input for already-answered {config.test_type} q{question.number}; navigating forward if needed"
+                )
+                # На всякий случай двигаемся дальше, только если находимся ещё на этом же окне
+                if current_state == expected_state:
+                    if question.number < len(config.questions):
+                        await dialog_manager.next()
+                    else:
+                        await dialog_manager.switch_to(config.states_group.completed)
+                return
             # Если уже помечено завершение — игнорируем ввод и переходим в completed
             completion_pending = dialog_manager.dialog_data.get(f"test_{config.test_type}_completion_pending", False)
             completion_done = dialog_manager.dialog_data.get(f"test_{config.test_type}_completion_done", False)
@@ -166,13 +232,19 @@ class UniversalTestDialogGenerator:
                 return
             
             # Записываем ответ в память. Даже если был таймаут почти одновременно, save_answer вернёт False
-            await test_engine.save_answer(dialog_manager, config, question.number, text)
+            saved = await test_engine.save_answer(dialog_manager, config, question.number, text)
             
             # Переходим к следующему вопросу или к завершению
-            if question.number < len(config.questions):
-                await dialog_manager.next()
+            # Переход делаем только если по-прежнему на ожидаемом окне (OutdatedIntent защита)
+            if current_state == expected_state:
+                if question.number < len(config.questions):
+                    await dialog_manager.next()
+                else:
+                    await dialog_manager.switch_to(config.states_group.completed)
             else:
-                await dialog_manager.switch_to(config.states_group.completed)
+                logger.debug(
+                    f"Skip navigation for {config.test_type} q{question.number}: state changed concurrently (likely timeout)"
+                )
                 
         return on_input
     

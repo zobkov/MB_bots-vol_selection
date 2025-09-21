@@ -142,7 +142,9 @@ class EnhancedTimerManager:
             
             if on_timeout_callback:
                 try:
+                    logger.debug(f"Calling timeout callback for {timer_key}")
                     await on_timeout_callback(bg_manager, timer_key)
+                    logger.debug(f"Timeout callback completed for {timer_key}")
                 except Exception as e:
                     logger.error(f"Error in timeout callback for {timer_key}: {e}", exc_info=True)
             

@@ -377,64 +377,154 @@ import logging
 - Dialog data persistence across question transitions
 - Cleanup on dialog exit or completion
 
-### Legacy Timer System (Deprecated)
-**Old approach** - still works but avoid for new tests:
-**Modern approach** with getter-based timer launching and state checking:
+### APScheduler Timer System (NEW - Current Approach)
+**Production-ready timer system** with Redis persistence for reliability across bot restarts. Located in `utils/scheduler_utils.py` and `bot/dialogs/unified_testing/enhanced_scheduler_timer_utils.py`.
 
+#### Core Architecture Components
+
+**APScheduler + Redis JobStore**:
 ```python
-# Pattern: Getter-based timer launching with state validation
-from bot.dialogs.timer_utils import start_timer_background, stop_timer, get_timer_progress_data
+# Redis-backed job persistence
+from utils.scheduler_utils import APSchedulerTimerManager, TimerConfig
+from bot.dialogs.unified_testing.enhanced_scheduler_timer_utils import (
+    APSchedulerEnhancedTimerManager, start_timer_background, stop_timer
+)
 
-async def get_department_q1_data(dialog_manager: DialogManager = None, **kwargs):
-    logger.debug(f"get_department_q1_data called with dialog_manager: {dialog_manager}")
-    
-    # Launch timer only if we're in the correct state
+# Timer configuration with full context
+timer_config = TimerConfig(
+    user_id=user.id,
+    chat_id=chat_id,
+    test_type="logistics",
+    question_number=1,
+    time_limit=120,  # seconds
+    bot_token=bot_token
+)
+
+# Start persistent timer
+job_id = await scheduler.start_question_timer(timer_config)
+```
+
+#### Key Features & Benefits
+
+**Redis Persistence**:
+- Timers survive bot restarts and crashes
+- JobStore in Redis DB 1 (separate from FSM)
+- Automatic job recovery on startup
+- Graceful shutdown with job cleanup
+
+**User-Isolated Timer Management**:
+- Timer keys: `user_{user_id}_{test_type}_q{question_number}`
+- Zero conflicts between users and departments  
+- Automatic timeout handling with bot notifications
+- Progress widgets with 2-second updates
+
+**Integration Pattern**:
+```python
+# In question getters - compatibility with old system
+async def get_logistics_q1_data(dialog_manager: DialogManager = None, **kwargs):
     if dialog_manager and hasattr(dialog_manager, 'current_context'):
         state = dialog_manager.current_context().state
-        logger.debug(f"Current state: {state}")
-        if state == DepartmentTestSG.q1:
-            logger.debug("Starting timer for department_q1")
-            await start_timer_background(dialog_manager, "department_q1", 120)
+        if state == LogisticsTestSG.q1:
+            timer_key = f"user_{user_id}_logistics_q1"
+            await start_timer_background(dialog_manager, timer_key, 120)
     
     return {"question_text": QUESTIONS[1]["text"]}
 
-# Window configuration without on_process_result
-Window(
-    Format("🏢 <b>Department - Question 1/6</b>\n\n{question_text}\n\n(Time: 120 seconds)"),
-    *create_timer_display("department_q1"),
-    TextInput(id="q1_input", on_success=on_q1_input),
-    state=DepartmentTestSG.q1,
-    getter=[get_department_q1_data, get_timer_progress_data("department_q1")],
-)
-
-# Debug logging in input handlers
+# In input handlers - automatic timer cleanup
 async def on_q1_input(message: Message, widget, dialog_manager: DialogManager, text: str):
-    logger.debug(f"on_q1_input called with text: {text}")
-    await save_answer_and_proceed(dialog_manager, 1, text)
-
-# Timer cleanup in save functions
-async def save_answer_and_proceed(dialog_manager: DialogManager, question_num: int, answer: str):
-    logger.debug(f"save_answer_and_proceed called with question_num: {question_num}")
-    try:
-        timer_key = f"department_q{question_num}"
-        await stop_timer(dialog_manager, timer_key)  # New API
-        # ... rest of logic
+    timer_key = f"user_{user_id}_logistics_q1"
+    await stop_timer(dialog_manager, timer_key)
+    # ... save answer and proceed
 ```
 
-**Critical Timer Rules**:
-- **State checking prevents duplicate timers**: Always check `dialog_manager.current_context().state` before launching
-- **2-second update intervals**: Optimized to avoid Telegram flood control (no more 1s updates)
-- **Countdown progress**: Progress goes from 100% → 0% for intuitive countdown display
-- **Database session API**: Use `db.get_session()` + manual `session.close()`, not `async with db.session()`
-- **No on_process_result**: Timer launching moved to getter functions for better control
-- **Comprehensive debug logging**: Track timer launches, state transitions, and function calls
+#### Technical Implementation Details
 
-**Migration pattern** from old timer_manager system:
-1. Update imports: `timer_manager` → `start_timer_background, stop_timer`
-2. Enhance getters with state checking and timer launching
-3. Add debug logging to input handlers and save functions
-4. Remove old `start_*_timer_q*` functions and `on_process_result` references
-5. Update `stop_timer(dialog_manager, timer_key)` calls
+**Scheduler Configuration** (`config.py`):
+```python
+@dataclass
+class SchedulerConfig:
+    enabled: bool = True
+    timezone: str = "UTC"
+    misfire_grace_time: int = 30  # seconds
+    max_instances: int = 3
+    coalesce: bool = True
+
+@dataclass  
+class RedisConfig:
+    jobstore_db: int = 1  # APScheduler jobs database
+```
+
+**Main.py Integration**:
+```python
+# Initialize APScheduler with Redis jobstore
+from utils.scheduler_utils import init_scheduler_manager, shutdown_scheduler_manager
+
+redis_config = {
+    'host': config.redis.host,
+    'port': config.redis.port, 
+    'password': config.redis.password,
+    'jobstore_db': config.redis.jobstore_db
+}
+scheduler_manager = await init_scheduler_manager(redis_config)
+
+# Graceful shutdown
+await shutdown_scheduler_manager()
+```
+
+**Timeout Handling**:
+```python
+# Automatic timeout notifications via bot
+async def _handle_question_timeout(config: TimerConfig):
+    bot = Bot(token=config.bot_token)
+    await bot.send_message(
+        chat_id=config.chat_id,
+        text=f"⏰ Время на вопрос {config.question_number} истекло..."
+    )
+    # Optional: custom timeout callback execution
+```
+
+#### Migration from Legacy Timer System
+
+**Backward Compatibility**:
+- All existing timer functions work unchanged
+- `start_timer_background()`, `stop_timer()`, `get_timer_progress_data()` 
+- Automatic migration on startup via `migrate_old_timers_to_scheduler()`
+
+**Critical Differences**:
+- **Persistence**: Jobs survive restarts (vs asyncio tasks)
+- **Isolation**: User-based job IDs prevent conflicts
+- **Monitoring**: APScheduler event listeners for job tracking
+- **Error Handling**: Misfire grace periods and job coalescing
+
+#### Dependencies & Configuration
+
+**Required Environment Variables**:
+```env
+SCHEDULER_ENABLED=true
+SCHEDULER_TIMEZONE=UTC
+SCHEDULER_MISFIRE_GRACE_TIME=30
+SCHEDULER_MAX_INSTANCES=3
+REDIS_JOBSTORE_DB=1
+```
+
+**Required Imports for Timer Usage**:
+```python
+from bot.dialogs.unified_testing.enhanced_scheduler_timer_utils import (
+    start_timer_background, stop_timer, get_timer_progress_data
+)
+```
+
+### Legacy Timer System (Deprecated - Do Not Use)
+**Old approach** - asyncio-based timers without persistence. **Replaced by APScheduler system above.**
+
+The old `enhanced_timer_utils.py` used asyncio tasks which don't survive bot restarts:
+
+```python
+# OLD PATTERN (deprecated) - Do not use
+from bot.dialogs.timer_utils import start_timer_background, stop_timer
+```
+
+**Migration Status**: All unified tests should use APScheduler. Any remaining asyncio timer code should be migrated.
 
 ## Development Workflows
 
@@ -451,12 +541,23 @@ alembic upgrade head
 ./start.sh          # Full setup + run (checks Redis, applies migrations)
 ./restart.sh        # Quick restart
 ./monitor.sh        # Background monitoring
+
+# Manual database operations
+alembic revision --autogenerate -m "description"
+alembic upgrade head
+
+# Testing unified system
+python3 test_unified_logistics.py     # Test specific department
+python3 test_unified_all.py           # Test all unified dialogs
+python3 test_unified_system_unit.py   # Unit tests with pytest
 ```
 
 ### Testing Strategy
-- **Unit tests**: `test_unit/` for isolated logic
-- **Integration tests**: `test_integration.py` for full flows
-- **Feature tests**: `test_anketa_update.py`, `test_user_creation.py` for specific features
+- **Unified system tests**: `test_unified_*.py` files test the new unified testing architecture
+- **Unit tests**: `test_unified_system_unit.py` for isolated component testing with pytest
+- **Integration tests**: `test_integration.py` for full bot workflows
+- **Feature tests**: Individual files like `test_anketa_update.py`, `test_user_creation.py` for specific features
+- **Configuration tests**: `test_unified_logistics.py` validates unified testing configs
 
 ### Logging Convention
 Use structured logging with dedicated loggers:

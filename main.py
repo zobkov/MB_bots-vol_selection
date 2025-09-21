@@ -21,7 +21,9 @@ from bot.middlewares import LoggingMiddleware
 from bot.keyboards.command_menu import set_main_menu
 from utils.logging_config import setup_logging, log_error, log_user_action
 from utils.google_services import setup_google_sheets_service
+from utils.scheduler_utils import init_scheduler_manager, shutdown_scheduler_manager
 from bot.dialogs.unified_testing.test_engine import set_global_database
+from bot.dialogs.unified_testing.enhanced_scheduler_timer_utils import migrate_old_timers_to_scheduler
 
 
 async def main():
@@ -75,6 +77,23 @@ async def main():
         # Устанавливаем глобальный доступ к БД для timeout обработки
         set_global_database(db)
         
+        # Инициализируем APScheduler для таймеров
+        if config.scheduler.enabled:
+            redis_config = {
+                'host': config.redis.host,
+                'port': config.redis.port,
+                'password': config.redis.password,
+                'jobstore_db': config.redis.jobstore_db
+            }
+            scheduler_manager = await init_scheduler_manager(redis_config)
+            logger.info("⏰ APScheduler timer system initialized")
+            
+            # Выполняем миграцию старой системы таймеров
+            await migrate_old_timers_to_scheduler()
+        else:
+            scheduler_manager = None
+            logger.warning("⚠️ APScheduler disabled in configuration")
+        
         # Настраиваем Google Sheets сервис
         google_sheets_service = setup_google_sheets_service(config)
         if google_sheets_service:
@@ -82,12 +101,13 @@ async def main():
         else:
             logger.warning("⚠️ Google Sheets сервис не настроен")
         
-        # Создаем middleware для передачи конфигурации, БД, Google Sheets и Bot
+        # Создаем middleware для передачи конфигурации, БД, Google Sheets, Bot и Scheduler
         async def config_middleware(handler, event, data):
             data["config"] = config
             data["db"] = db
             data["google_sheets_service"] = google_sheets_service
             data["bot"] = bot  # Добавляем bot для отправки медиа
+            data["scheduler_manager"] = scheduler_manager  # Добавляем scheduler
             return await handler(event, data)
         
         # Регистрируем middleware
@@ -129,6 +149,7 @@ async def main():
     finally:
         try:
             # Закрываем соединения
+            await shutdown_scheduler_manager()  # Останавливаем APScheduler первым
             await db.close()
             await redis_client.aclose()
             await bot.session.close()

@@ -22,6 +22,8 @@ class RedisConfig:
     password: Optional[str]
     host: str = "localhost"
     port: int = 6379
+    # APScheduler settings
+    jobstore_db: int = 1  # Different database for APScheduler jobs
 
 @dataclass
 class TgBot:
@@ -44,11 +46,21 @@ class SelectionConfig:
     support_contacts: Dict[str, str]
 
 @dataclass
+class SchedulerConfig:
+    """APScheduler configuration"""
+    enabled: bool = True
+    timezone: str = "UTC"
+    misfire_grace_time: int = 30  # seconds
+    max_instances: int = 3
+    coalesce: bool = True
+
+@dataclass
 class Config:
     tg_bot: TgBot
     db: DatabaseConfig
     redis: RedisConfig
     selection: SelectionConfig
+    scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     google: Optional[GoogleConfig] = None
     log_level: str = "INFO"
 
@@ -75,7 +87,8 @@ def load_config(path: str = None) -> Config:
     redis = RedisConfig(
         host=env.str("REDIS_HOST", "localhost"),
         port=env.int("REDIS_PORT", 6379),
-        password=env.str("REDIS_PASSWORD", None) if env.str("REDIS_PASSWORD", "") else None
+        password=env.str("REDIS_PASSWORD", None) if env.str("REDIS_PASSWORD", "") else None,
+        jobstore_db=env.int("REDIS_JOBSTORE_DB", 1)
     )
     
     # Настройки Google (опциональные)
@@ -107,6 +120,15 @@ def load_config(path: str = None) -> Config:
         support_contacts=json_config["support_contacts"]
     )
     
+    # APScheduler configuration
+    scheduler_config = SchedulerConfig(
+        enabled=env.bool("SCHEDULER_ENABLED", True),
+        timezone=env.str("SCHEDULER_TIMEZONE", "UTC"),
+        misfire_grace_time=env.int("SCHEDULER_MISFIRE_GRACE_TIME", 30),
+        max_instances=env.int("SCHEDULER_MAX_INSTANCES", 3),
+        coalesce=env.bool("SCHEDULER_COALESCE", True)
+    )
+    
     log_level = env.str("LOG_LEVEL", "INFO")
     
     return Config(
@@ -114,6 +136,7 @@ def load_config(path: str = None) -> Config:
         db=db_config,
         redis=redis,
         selection=selection_config,
+        scheduler=scheduler_config,
         google=google_config,
         log_level=log_level
     )

@@ -9,7 +9,14 @@ from aiogram_dialog import DialogManager
 from aiogram.types import Message
 
 from .models import TestConfig, TestQuestion, TestProgress, TimerData
-from .enhanced_timer_utils import EnhancedTimerManager
+from .enhanced_scheduler_timer_utils import (
+    APSchedulerEnhancedTimerManager, 
+    start_timer_background, 
+    stop_timer, 
+    get_timer_progress_data,
+    calculate_time_taken,
+    migrate_old_timers_to_scheduler
+)
 
 # Глобальная переменная для доступа к БД в timeout случаях
 _global_db = None
@@ -41,7 +48,7 @@ class TestEngine:
     """
     
     def __init__(self):
-        self.timer_manager = EnhancedTimerManager()
+        self.timer_manager = APSchedulerEnhancedTimerManager()
         self.active_tests: Dict[int, TestProgress] = {}  # user_id -> TestProgress
         
     def get_user_timer_key(self, user_id: int, test_type: str, question_num: int) -> str:
@@ -58,6 +65,27 @@ class TestEngine:
         
         logger.info(f"Starting {config.test_type} test for user {user_id}")
         
+        # Чистим возможные артефакты предыдущего запуска этого же теста в dialog_data
+        try:
+            dd = dialog_manager.dialog_data
+            keys_to_delete = []
+            prefixes = [
+                f"user_{user_id}_{config.test_type}_",          # таймеры и answered-флаги
+                f"test_{config.test_type}_",                    # persisted/completion/advance
+                f"question_{config.test_type}_",                # медиа для вопросов
+            ]
+            for k in list(dd.keys()):
+                if any(k.startswith(p) for p in prefixes):
+                    keys_to_delete.append(k)
+            for k in keys_to_delete:
+                dd.pop(k, None)
+            if keys_to_delete:
+                logger.debug(
+                    f"Cleared {len(keys_to_delete)} stale dialog_data keys for test {config.test_type}: {keys_to_delete}"
+                )
+        except Exception as e:
+            logger.debug(f"Failed to cleanup stale dialog_data for {config.test_type}: {e}")
+
         # Останавливаем все активные таймеры пользователя
         await self.timer_manager.stop_all_user_timers(user_id)
         
@@ -128,7 +156,7 @@ class TestEngine:
             await self.timer_manager.stop_timer(dialog_manager, timer_key)
             
             # Время ответа
-            time_taken = self.timer_manager.calculate_time_taken(dialog_manager, timer_key)
+            time_taken = calculate_time_taken(dialog_manager, timer_key)
             
             # Получаем вопрос
             question = next((q for q in config.questions if q.number == question_num), None)
@@ -157,6 +185,14 @@ class TestEngine:
             
             # Ставим флаг «ответ сохранён», чтобы таймаут не продублировал
             dialog_manager.dialog_data[flag_key] = True
+            # Дополнительно ставим короткий флаг без user_id для бэкграунд-рендеров
+            short_answered_key = f"test_{config.test_type}_q{question_num}_answered"
+            dialog_manager.dialog_data[short_answered_key] = True
+            # И обновляем текущий прогресс в dialog_data (без user_id)
+            try:
+                dialog_manager.dialog_data[f"test_{config.test_type}_current"] = progress.current_question
+            except Exception:
+                pass
             logger.info(f"Answer recorded (in-memory) for user {user_id}, {config.test_type} q{question_num}")
             return True
         except Exception as e:
@@ -173,29 +209,85 @@ class TestEngine:
         """
         user_id_str = timer_key.split('_')[1]  # извлекаем user_id из ключа
         user_id = int(user_id_str)
-        logger.info(f"Timeout for user {user_id}, {config.test_type} q{question_num}")
+        logger.info(f"Timeout handler called for user {user_id}, {config.test_type} q{question_num}")
 
         try:
+            # Получаем dialog_manager из bg_manager разными способами
             dialog_manager = getattr(bg_manager, '_manager', None)
+            if not dialog_manager:
+                dialog_manager = getattr(bg_manager, 'manager', None)
+            if not dialog_manager:
+                # Попробуем получить доступ к data через bg_manager
+                dialog_manager = bg_manager
+            
+            logger.debug(f"Dialog manager found: {dialog_manager is not None}")
+            
             if dialog_manager:
-                # Если ответ уже записан (например, пользователь успел ответить) — выходим
+                # Сразу устанавливаем флаги завершения вопроса без попытки получить event
                 flag_key = self._answered_flag_key(timer_key)
-                if dialog_manager.dialog_data.get(flag_key):
-                    logger.debug(f"Timeout ignored because answer already recorded for {timer_key}")
-                else:
-                    saved = await self.save_answer(dialog_manager, config, question_num, "", is_timeout=True)
-                    if saved:
-                        logger.info(f"Timeout answer recorded for {config.test_type} q{question_num}")
+                short_answered_key = f"test_{config.test_type}_q{question_num}_answered"
+                advance_key = f"test_{config.test_type}_advance_to"
+                
+                # Проверяем, не был ли уже обработан этот таймаут
+                if hasattr(dialog_manager, 'dialog_data') and dialog_manager.dialog_data.get(flag_key):
+                    logger.debug(f"Timeout already processed for {timer_key}")
+                    return
+                
+                # Устанавливаем флаги завершения вопроса
+                if hasattr(dialog_manager, 'dialog_data'):
+                    dialog_manager.dialog_data[flag_key] = True
+                    dialog_manager.dialog_data[short_answered_key] = True
+                    
+                    # Устанавливаем следующее состояние
+                    if question_num < len(config.questions):
+                        dialog_manager.dialog_data[advance_key] = question_num + 1
+                        logger.info(f"Timeout: advancing from q{question_num} to q{question_num+1}")
+                    else:
+                        dialog_manager.dialog_data[f"test_{config.test_type}_completion_pending"] = True
+                        dialog_manager.dialog_data[advance_key] = "completed"
+                        logger.info(f"Timeout: completing test {config.test_type}")
+                
+                # Пытаемся записать пустой ответ в память через engine
+                try:
+                    if user_id in self.active_tests:
+                        progress = self.active_tests[user_id]
+                        if question_num not in progress.answers:
+                            # Получаем вопрос
+                            question = next((q for q in config.questions if q.number == question_num), None)
+                            if question:
+                                answer_record = {
+                                    "question_number": question.number,
+                                    "question_text": question.text,
+                                    "answer_text": "",
+                                    "time_limit": question.time_limit,
+                                    "time_taken": question.time_limit,
+                                    "is_timeout": True,
+                                    "correct_answer": question.correct_answer,
+                                }
+                                progress.answers[question_num] = answer_record
+                                progress.current_question = min(question_num + 1, progress.total_questions)
+                                logger.info(f"Timeout answer recorded in engine for {config.test_type} q{question_num}")
+                except Exception as save_err:
+                    logger.error(f"Error saving timeout answer in engine: {save_err}")
 
             # Переход к следующему состоянию через bg_manager.switch_to
             try:
                 if question_num < len(config.questions):
                     next_state = getattr(config.states_group, f"q{question_num+1}")
+                    # Устанавливаем аварийный флаг для надёжного редиректа геттерами на следующую страницу
+                    try:
+                        if dialog_manager:
+                            advance_key = f"test_{config.test_type}_advance_to"
+                            dialog_manager.dialog_data[advance_key] = question_num + 1
+                    except Exception:
+                        pass
                 else:
                     # Помечаем, что завершение ожидается (для мгновенного редиректа геттеров)
                     try:
                         if dialog_manager:
                             dialog_manager.dialog_data[f"test_{config.test_type}_completion_pending"] = True
+                            # Дополнительный флаг для синхронного редиректа в геттерах
+                            dialog_manager.dialog_data[f"test_{config.test_type}_advance_to"] = "completed"
                     except Exception:
                         pass
                     # На всякий случай останавливаем все таймеры пользователя
@@ -298,6 +390,16 @@ class TestEngine:
 
                 # Помечаем прогресс как завершённый и очищаем
                 progress.is_completed = True
+                # Отмечаем в dialog_data, что сохранение выполнено (для быстрых редиректов геттеров)
+                try:
+                    dialog_manager.dialog_data[f"test_{config.test_type}_persisted"] = True
+                    dialog_manager.dialog_data[f"test_{config.test_type}_completion_pending"] = False
+                    # На случай висящего advance_to очищаем
+                    adv_key = f"test_{config.test_type}_advance_to"
+                    if adv_key in dialog_manager.dialog_data:
+                        dialog_manager.dialog_data.pop(adv_key, None)
+                except Exception:
+                    pass
                 logger.info(f"Persist completed for {config.test_type}, user {user_id}")
                 return True
             finally:
