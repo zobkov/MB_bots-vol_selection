@@ -298,16 +298,19 @@ class EnhancedTimerManager:
     def get_user_timer_stats(self, user_id: int) -> Dict[str, Any]:
         """Получение статистики таймеров пользователя"""
         if user_id not in self.user_timers:
-            return {"active_timers": 0, "timer_keys": []}
+            return {"active_timers": 0, "timer_keys": [], "active_count": 0, "timers": []}
         
         active_timers = []
         for timer_key, task in self.user_timers[user_id].items():
             if task and not task.done():
                 active_timers.append(timer_key)
         
+        # Для обратной совместимости возвращаем два формата
         return {
             "active_timers": len(active_timers),
-            "timer_keys": active_timers
+            "timer_keys": active_timers,
+            "active_count": len(active_timers),
+            "timers": list(self.user_timers[user_id].keys()),
         }
     
     def _is_timer_active(self, user_id: int, timer_key: str) -> bool:

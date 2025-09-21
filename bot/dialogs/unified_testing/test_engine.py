@@ -30,7 +30,15 @@ logger = logging.getLogger(__name__)
 
 
 class TestEngine:
-    """Основной движок для управления тестированием"""
+    """Основной движок для управления тестированием
+
+    Ключевые принципы новой реализации:
+    - Ответы НЕ пишутся в БД по ходу теста. Мы копим их в памяти (TestProgress.answers)
+      и одним коммитом сохраняем все ответы при показе окна завершения.
+    - Таймаут вопроса = пустой ответ. По таймауту сохраняем в память и сразу переходим далее.
+    - Дубли сохраняния (гонки «ответ + таймаут») предотвращаем флагом "answered" на таймер-ключ.
+    - Все таймеры изолированы по пользователю; каждый переход останавливает предыдущие таймеры.
+    """
     
     def __init__(self):
         self.timer_manager = EnhancedTimerManager()
@@ -39,6 +47,10 @@ class TestEngine:
     def get_user_timer_key(self, user_id: int, test_type: str, question_num: int) -> str:
         """Генерация ключа таймера для конкретного пользователя"""
         return f"user_{user_id}_{test_type}_q{question_num}"
+
+    def _answered_flag_key(self, timer_key: str) -> str:
+        """Ключ-флаг в dialog_data, помечающий, что ответ по этому вопросу уже сохранён."""
+        return f"{timer_key}_answered"
     
     async def start_test(self, dialog_manager: DialogManager, config: TestConfig) -> TestProgress:
         """Запуск нового теста"""
@@ -60,7 +72,7 @@ class TestEngine:
         
         self.active_tests[user_id] = progress
         
-        # Сохраняем начало теста в dialog_data
+    # Сохраняем начало теста в dialog_data
         dialog_manager.dialog_data[f"test_{config.test_type}_started"] = True
         dialog_manager.dialog_data[f"test_{config.test_type}_config"] = config
         dialog_manager.dialog_data[f"test_{config.test_type}_progress"] = progress
@@ -96,17 +108,29 @@ class TestEngine:
     
     async def save_answer(self, dialog_manager: DialogManager, config: TestConfig, 
                          question_num: int, answer: str, is_timeout: bool = False) -> bool:
-        """Сохранение ответа и переход к следующему вопросу"""
+        """Сохранение ответа в память (без БД) и обновление прогресса.
+
+        Возвращает True, если ответ был сохранён впервые; False, если ответ уже был.
+        """
         user_id = dialog_manager.event.from_user.id
         timer_key = self.get_user_timer_key(user_id, config.test_type, question_num)
+        flag_key = self._answered_flag_key(timer_key)
         
-        logger.info(f"Saving answer for user {user_id}, {config.test_type} q{question_num}: '{answer}' (timeout: {is_timeout})")
+        # Если уже отвечали (гонка таймаута/ввода) — ничего не делаем
+        if dialog_manager.dialog_data.get(flag_key):
+            logger.debug(f"Answer already recorded for {timer_key}, skipping duplicate save")
+            return False
+        
+        logger.info(
+            f"Recording answer (in-memory) for user {user_id}, {config.test_type} q{question_num}: "
+            f"'{answer}' (timeout: {is_timeout})"
+        )
         
         try:
-            # Останавливаем таймер
+            # Останавливаем таймер (если ещё активен)
             await self.timer_manager.stop_timer(dialog_manager, timer_key)
             
-            # Вычисляем время ответа
+            # Время ответа
             time_taken = self.timer_manager.calculate_time_taken(dialog_manager, timer_key)
             
             # Получаем вопрос
@@ -115,116 +139,146 @@ class TestEngine:
                 logger.error(f"Question {question_num} not found in config")
                 return False
             
-            # Сохраняем в БД
-            success = await self._save_answer_to_db(
-                dialog_manager, config, question, answer, time_taken, is_timeout
-            )
-            
-            if not success:
-                logger.error(f"Failed to save answer to database")
-                return False
+            # Подготавливаем запись ответа (пока только в память)
+            answer_record = {
+                "question_number": question.number,
+                "question_text": question.text,
+                "answer_text": answer or "",
+                "time_limit": question.time_limit,
+                "time_taken": time_taken,
+                "is_timeout": is_timeout,
+                "correct_answer": question.correct_answer,
+            }
             
             # Обновляем прогресс
             if user_id in self.active_tests:
                 progress = self.active_tests[user_id]
-                progress.answers[question_num] = answer
-                
-                # Проверяем завершение теста
-                if len(progress.answers) >= progress.total_questions:
-                    await self.complete_test(dialog_manager, config)
-                else:
-                    progress.current_question = question_num + 1
+                progress.answers[question_num] = answer_record
+                progress.current_question = min(question_num + 1, progress.total_questions)
+            else:
+                logger.warning(f"Active test not found for user {user_id} when saving answer")
             
-            logger.info(f"Answer saved successfully for user {user_id}, {config.test_type} q{question_num}")
+            # Ставим флаг «ответ сохранён», чтобы таймаут не продублировал
+            dialog_manager.dialog_data[flag_key] = True
+            logger.info(f"Answer recorded (in-memory) for user {user_id}, {config.test_type} q{question_num}")
             return True
-            
         except Exception as e:
-            logger.error(f"Error saving answer for user {user_id}, {config.test_type} q{question_num}: {e}", exc_info=True)
+            logger.error(
+                f"Error recording answer for user {user_id}, {config.test_type} q{question_num}: {e}",
+                exc_info=True
+            )
             return False
     
     async def handle_timeout(self, bg_manager, config: TestConfig, question_num: int, timer_key: str):
-        """Обработка таймаута вопроса с прямым переходом"""
+        """Обработка таймаута вопроса: пишем пустой ответ в память и переходим далее.
+
+        ВАЖНО: НИКАКИХ операций с БД здесь — сохранение произойдёт в окне завершения.
+        """
         user_id_str = timer_key.split('_')[1]  # извлекаем user_id из ключа
         user_id = int(user_id_str)
-        
         logger.info(f"Timeout for user {user_id}, {config.test_type} q{question_num}")
-        
+
         try:
-            # Получаем dialog_manager из bg_manager для сохранения ответа
             dialog_manager = getattr(bg_manager, '_manager', None)
             if dialog_manager:
-                # Сохраняем пустой ответ при таймауте
-                try:
-                    await self.save_answer(dialog_manager, config, question_num, "", is_timeout=True)
-                    logger.info(f"Saved timeout answer for {config.test_type} q{question_num}")
-                except Exception as save_error:
-                    logger.error(f"Error saving timeout answer: {save_error}", exc_info=True)
-            
-            # Выполняем прямой переход к следующему состоянию
-            if question_num < len(config.questions):
-                # Переходим к следующему вопросу через bg_manager.switch_to()
-                next_question_num = question_num + 1
-                next_state = getattr(config.states_group, f'q{next_question_num}')
-                logger.info(f"Transitioning from q{question_num} to q{next_question_num} via bg_manager.switch_to({next_state})")
-                await bg_manager.switch_to(next_state)
-            else:
-                # Это последний вопрос - завершаем тест здесь, а не в completion_getter
-                logger.info(f"Last question {question_num} timed out - completing test directly")
-                try:
-                    # Завершаем тест в background
-                    if dialog_manager:
-                        # Устанавливаем флаг завершения в dialog_data
-                        test_completed_key = f"test_{config.test_type}_completed"
-                        dialog_manager.dialog_data[test_completed_key] = True
-                        
-                        # Выполняем завершение теста
-                        await self.complete_test(dialog_manager, config)
-                        logger.info(f"Test {config.test_type} completed during timeout processing")
-                    
-                    # Переходим к состоянию завершения только после завершения теста - используем next()
-                    logger.info(f"Using bg_manager.next() to transition to completed state")
-                    await bg_manager.next()
-                except Exception as completion_error:
-                    logger.error(f"Error completing test during timeout: {completion_error}", exc_info=True)
-                    # Все равно переходим к completed state с next()
-                    logger.info(f"Using bg_manager.next() as fallback")
-                    await bg_manager.next()
-                
+                # Если ответ уже записан (например, пользователь успел ответить) — выходим
+                flag_key = self._answered_flag_key(timer_key)
+                if dialog_manager.dialog_data.get(flag_key):
+                    logger.debug(f"Timeout ignored because answer already recorded for {timer_key}")
+                else:
+                    saved = await self.save_answer(dialog_manager, config, question_num, "", is_timeout=True)
+                    if saved:
+                        logger.info(f"Timeout answer recorded for {config.test_type} q{question_num}")
+
+            # Переход к следующему окну (или к completed)
+            await bg_manager.next()
         except Exception as e:
             logger.error(f"Error handling timeout for {timer_key}: {e}", exc_info=True)
     
-    async def complete_test(self, dialog_manager: DialogManager, config: TestConfig):
-        """Завершение теста"""
+    async def persist_results(self, dialog_manager: DialogManager, config: TestConfig) -> bool:
+        """Сохранение всех ответов в БД и отметка завершения (одним коммитом).
+
+        Возвращает True при полном успехе.
+        """
         user_id = dialog_manager.event.from_user.id
-        
-        logger.info(f"Completing {config.test_type} test for user {user_id}")
-        
+        logger.info(f"Persisting results for {config.test_type} test, user {user_id}")
+
         try:
-            # Пытаемся сохранить все failed ответы перед завершением
-            retry_success = await self.retry_failed_answers(dialog_manager)
-            if not retry_success:
-                retry_stats = await self.get_retry_stats(dialog_manager)
-                logger.warning(f"Some answers still pending retry: {retry_stats}")
-            
-            # Останавливаем все таймеры пользователя
+            # Стоп всех таймеров пользователя
             await self.timer_manager.stop_all_user_timers(user_id)
-            
-            # Обновляем прогресс
-            if user_id in self.active_tests:
-                progress = self.active_tests[user_id]
+
+            progress = self.active_tests.get(user_id)
+            if not progress:
+                logger.warning(f"No active progress found for user {user_id} during persist")
+                return False
+
+            db: Database = dialog_manager.middleware_data.get("db") or get_global_database()
+            if not db:
+                logger.error("No database connection to persist results")
+                return False
+
+            session = await db.get_session()
+            try:
+                dept_repo = DepartmentTestRepository(session)
+                user_repo = UserRepository(session)
+
+                user = await user_repo.get_user_by_telegram_id(user_id)
+                if not user:
+                    logger.error(f"User {user_id} not found for persist")
+                    return False
+
+                test_result = await dept_repo.get_or_create_test_result(user.id, config.test_type)
+
+                # Сохраняем ответы в порядке вопросов
+                for q in config.questions:
+                    ans = progress.answers.get(q.number)
+                    # Если по какой-то причине ответа нет — считаем пустым/таймаутом
+                    if not ans:
+                        ans = {
+                            "question_number": q.number,
+                            "question_text": q.text,
+                            "answer_text": "",
+                            "time_limit": q.time_limit,
+                            "time_taken": q.time_limit,
+                            "is_timeout": True,
+                            "correct_answer": q.correct_answer,
+                        }
+
+                    # Определяем правильность при наличии эталона
+                    is_correct = None
+                    if q.correct_answer is not None:
+                        is_correct = (ans.get("answer_text", "").strip().lower() == q.correct_answer.strip().lower())
+
+                    await dept_repo.save_answer(
+                        test_result.id,
+                        ans["question_number"],
+                        ans.get("question_text", q.text),
+                        ans.get("answer_text", ""),
+                        ans.get("time_limit", q.time_limit),
+                        ans.get("time_taken", 0),
+                        ans.get("is_timeout", False),
+                        ans.get("correct_answer", q.correct_answer),
+                        is_correct,
+                    )
+
+                # Отмечаем завершение
+                await dept_repo.complete_test(user.id, config.test_type)
+
+                await session.commit()
+
+                # Медиа-очистка после удачного сохранения
+                await self.cleanup_question_media(dialog_manager, config)
+                await self.cleanup_test_media(dialog_manager, config)
+
+                # Помечаем прогресс как завершённый и очищаем
                 progress.is_completed = True
-            
-            # Обновляем is_completed в базе данных
-            await self._mark_test_completed(dialog_manager, config)
-            
-            # Вызываем checkpoint callback если есть
-            if config.checkpoint_callback:
-                await config.checkpoint_callback(dialog_manager)
-            
-            logger.info(f"Test {config.test_type} completed for user {user_id}")
-            
+                logger.info(f"Persist completed for {config.test_type}, user {user_id}")
+                return True
+            finally:
+                await session.close()
         except Exception as e:
-            logger.error(f"Error completing test {config.test_type} for user {user_id}: {e}", exc_info=True)
+            logger.error(f"Error persisting results for {config.test_type}, user {user_id}: {e}", exc_info=True)
+            return False
     
     async def _save_answer_to_db(self, dialog_manager: DialogManager, config: TestConfig, 
                                question: TestQuestion, answer: str, time_taken: int, 

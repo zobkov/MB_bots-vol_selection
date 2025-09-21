@@ -33,6 +33,12 @@ class UniversalTestDialogGenerator:
             # Проверяем флаги таймаута от bg_manager и обрабатываем если есть (устаревшая система)
             # Больше не используем эту систему, всё переведено на глобальное состояние pending_transitions
             
+            # На первом вопросе инициализируем прогресс теста (in-memory)
+            if question.number == 1:
+                started_key = f"test_{config.test_type}_started"
+                if not dialog_manager.dialog_data.get(started_key, False):
+                    await test_engine.start_test(dialog_manager, config)
+
             # Отправляем медиа при первом вопросе если требуется (старый способ)
             if question.number == 1 and config.send_media_on_start:
                 await test_engine.send_test_media(dialog_manager, config)
@@ -81,20 +87,14 @@ class UniversalTestDialogGenerator:
         async def on_input(message: Message, widget, dialog_manager: DialogManager, text: str):
             logger.debug(f"Input received for {config.test_type} q{question.number}: '{text}'")
             
-            success = await test_engine.save_answer(
-                dialog_manager, config, question.number, text
-            )
+            # Записываем ответ в память. Даже если был таймаут почти одновременно, save_answer вернёт False
+            await test_engine.save_answer(dialog_manager, config, question.number, text)
             
-            if success:
-                # Переходим к следующему вопросу или завершаем
-                if question.number < len(config.questions):
-                    await dialog_manager.next()
-                else:
-                    # Тест завершен, переходим к состоянию completed
-                    await dialog_manager.switch_to(config.states_group.completed)
+            # Переходим к следующему вопросу или к завершению
+            if question.number < len(config.questions):
+                await dialog_manager.next()
             else:
-                logger.error(f"Failed to save answer for {config.test_type} q{question.number}")
-                # Можно добавить обработку ошибок - повторный ввод или переход дальше
+                await dialog_manager.switch_to(config.states_group.completed)
                 
         return on_input
     
@@ -171,22 +171,14 @@ class UniversalTestDialogGenerator:
         # Создаем окно завершения теста
         async def completion_getter(dialog_manager: DialogManager = None, **kwargs):
             if dialog_manager:
-                # Проверяем, нужно ли завершить тест
-                test_completed_key = f"test_{config.test_type}_completed"
-                if not dialog_manager.dialog_data.get(test_completed_key, False):
-                    logger.info(f"Test {config.test_type} completion processing started for user {dialog_manager.event.from_user.id}")
-                    
-                    # Устанавливаем флаг СРАЗУ, чтобы избежать повторных вызовов
-                    dialog_manager.dialog_data[test_completed_key] = True
-                    
-                    # Завершаем тест синхронно (только если не был завершен в timeout)
+                # Идем по новой схеме: сохраняем ВСЕ ответы одним коммитом при первом рендере окна
+                test_persisted_key = f"test_{config.test_type}_persisted"
+                if not dialog_manager.dialog_data.get(test_persisted_key, False):
+                    dialog_manager.dialog_data[test_persisted_key] = True
                     try:
-                        await test_engine.complete_test(dialog_manager, config)
-                        logger.info(f"Test {config.test_type} completion finished for user {dialog_manager.event.from_user.id}")
+                        await test_engine.persist_results(dialog_manager, config)
                     except Exception as e:
-                        logger.error(f"Error in completion processing: {e}", exc_info=True)
-                else:
-                    logger.info(f"Test {config.test_type} already completed (probably by timeout) for user {dialog_manager.event.from_user.id}")
+                        logger.error(f"Error persisting results in completion window: {e}", exc_info=True)
                     
             return {
                 "test_display_name": config.display_name,
