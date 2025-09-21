@@ -192,6 +192,12 @@ class TestEngine:
                 if question_num < len(config.questions):
                     next_state = getattr(config.states_group, f"q{question_num+1}")
                 else:
+                    # Помечаем, что тест будет завершён, чтобы геттеры вопросов знали об этом
+                    try:
+                        if dialog_manager:
+                            dialog_manager.dialog_data[f"test_{config.test_type}_persisted"] = True
+                    except Exception:
+                        pass
                     next_state = getattr(config.states_group, "completed")
                 await bg_manager.switch_to(next_state)
             except Exception as trans_err:

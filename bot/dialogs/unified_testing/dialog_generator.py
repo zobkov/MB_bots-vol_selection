@@ -24,6 +24,24 @@ class UniversalTestDialogGenerator:
         """Создание геттера для конкретного вопроса"""
         async def get_question_data(dialog_manager: DialogManager = None, **kwargs):
             logger.debug(f"Getting data for {config.test_type} question {question.number}")
+            # Если результаты уже сохранены (persisted), принудительно переводим в completed
+            try:
+                persisted_key = f"test_{config.test_type}_persisted"
+                if dialog_manager and dialog_manager.dialog_data.get(persisted_key, False):
+                    current_state = dialog_manager.current_context().state if hasattr(dialog_manager, 'current_context') else None
+                    completed_state = getattr(config.states_group, 'completed')
+                    if current_state != completed_state:
+                        await dialog_manager.switch_to(completed_state)
+                    return {
+                        "question_text": question.text,
+                        "question_number": question.number,
+                        "total_questions": len(config.questions),
+                        "time_limit": question.time_limit,
+                        "test_display_name": config.display_name,
+                        "test_icon": config.icon
+                    }
+            except Exception as e:
+                logger.debug(f"Completion redirect check failed: {e}")
             
                         # Проверяем глобальные pending timeout переходы - больше не используется
             # Переходы теперь выполняются прямо в timeout callback через bg_manager.next()
