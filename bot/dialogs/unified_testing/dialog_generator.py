@@ -24,6 +24,10 @@ class UniversalTestDialogGenerator:
         async def get_question_data(dialog_manager: DialogManager = None, **kwargs):
             logger.debug(f"Getting data for {config.test_type} question {question.number}")
             
+            # Отправляем медиа при первом вопросе если требуется
+            if question.number == 1 and config.send_media_on_start:
+                await test_engine.send_test_media(dialog_manager, config)
+            
             # Запускаем таймер если находимся в правильном состоянии
             if dialog_manager and hasattr(dialog_manager, 'current_context'):
                 current_state = dialog_manager.current_context().state

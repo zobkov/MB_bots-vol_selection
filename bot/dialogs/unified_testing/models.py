@@ -33,6 +33,10 @@ class TestConfig:
     questions: List[TestQuestion]
     states_group: StatesGroup
     checkpoint_callback: Optional[Callable] = None
+    # Медиа-конфигурация
+    send_media_on_start: bool = False  # Отправлять ли медиа при начале теста
+    media_paths: Optional[List[str]] = None  # Пути к изображениям
+    media_caption: str = ""  # Подпись к медиа-группе
     
     def __post_init__(self):
         """Валидация конфигурации"""
@@ -48,6 +52,10 @@ class TestConfig:
         actual_numbers = [q.number for q in self.questions]
         if actual_numbers != expected_numbers:
             raise ValueError(f"Question numbers must be sequential 1-{len(self.questions)}, got {actual_numbers}")
+        
+        # Валидация медиа-конфигурации
+        if self.send_media_on_start and not self.media_paths:
+            raise ValueError("media_paths must be provided when send_media_on_start is True")
 
 
 @dataclass

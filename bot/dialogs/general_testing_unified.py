@@ -2,6 +2,7 @@
 Унифицированный диалог общих вопросов тестирования (новая версия)
 """
 import logging
+import os
 from bot.states import GeneralQuestionsSG
 from bot.dialogs.unified_testing import TestQuestion, TestConfig, create_test_dialog
 from bot.dialogs.checkpoint_utils import save_general_questions_completion_checkpoint
@@ -58,6 +59,15 @@ async def save_general_checkpoint(dialog_manager):
         logger.error(f"Error saving general questions checkpoint: {e}", exc_info=True)
 
 
+def get_general_media_paths():
+    """Получение путей к изображениям для общих вопросов"""
+    base_path = "/Users/artyomzobkov/vol_selection_MB_bot"
+    return [
+        os.path.join(base_path, "bot", "assets", "images", "first_floor.jpeg"),
+        os.path.join(base_path, "bot", "assets", "images", "second_floor.jpeg")
+    ]
+
+
 # Конфигурация общих вопросов
 GENERAL_CONFIG = TestConfig(
     test_type="general",
@@ -65,7 +75,11 @@ GENERAL_CONFIG = TestConfig(
     icon="📝",
     questions=GENERAL_QUESTIONS,
     states_group=GeneralQuestionsSG,
-    checkpoint_callback=save_general_checkpoint
+    checkpoint_callback=save_general_checkpoint,
+    # Конфигурация медиа
+    send_media_on_start=True,
+    media_paths=get_general_media_paths(),
+    media_caption="📍 Схемы расположения аудиторий для вопросов о навигации"
 )
 
 # Создание диалога с использованием универсальной системы

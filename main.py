@@ -78,11 +78,12 @@ async def main():
         else:
             logger.warning("⚠️ Google Sheets сервис не настроен")
         
-        # Создаем middleware для передачи конфигурации, БД и Google Sheets
+        # Создаем middleware для передачи конфигурации, БД, Google Sheets и Bot
         async def config_middleware(handler, event, data):
             data["config"] = config
             data["db"] = db
             data["google_sheets_service"] = google_sheets_service
+            data["bot"] = bot  # Добавляем bot для отправки медиа
             return await handler(event, data)
         
         # Регистрируем middleware
