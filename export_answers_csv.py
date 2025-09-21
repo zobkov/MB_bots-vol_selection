@@ -97,6 +97,36 @@ async def fetch_stage2(session, user_id: int) -> Optional[Stage2Answer]:
     )
     return result.scalars().first()
 
+async def fetch_unified_general_answers(session, user_id: int) -> Optional[Dict[int, str]]:
+    """Вернуть ответы общих вопросов из унифицированной системы (department='general').
+    Возвращает словарь {question_number: answer_text} или None, если записей нет.
+    Берём самый свежий test_result по department='general'.
+    """
+    tr_result = await session.execute(
+        select(DepartmentTestResult.id)
+        .where(
+            DepartmentTestResult.user_id == user_id,
+            DepartmentTestResult.department == "general",
+        )
+        .order_by(DepartmentTestResult.id.desc())
+        .limit(1)
+    )
+    row = tr_result.first()
+    if not row:
+        return None
+    (test_result_id,) = row
+
+    ans_result = await session.execute(
+        select(
+            DepartmentTestAnswer.question_number,
+            DepartmentTestAnswer.answer_text,
+        )
+        .where(DepartmentTestAnswer.test_result_id == test_result_id)
+        .order_by(DepartmentTestAnswer.question_number)
+    )
+    answers = {qn: (text or "") for qn, text in ans_result.all()}
+    return answers if answers else None
+
 
 async def fetch_department_answers(session, user_id: int) -> Dict[str, Dict[int, str]]:
     """Вернуть ответы по отделам: { department: {question_number: answer_text} }"""
@@ -160,6 +190,7 @@ async def export_to_csv(out_path: Path) -> Path:
                 application = await fetch_latest_application(session, user_id)
                 stage2 = await fetch_stage2(session, user_id)
                 dept_ans = await fetch_department_answers(session, user_id)
+                general_unified_direct = await fetch_unified_general_answers(session, user_id)
 
                 # Первая часть строк
                 tag = f"@{tg_username}" if tg_username else ""
@@ -174,11 +205,10 @@ async def export_to_csv(out_path: Path) -> Path:
 
                 row: List[str] = [tag, full_name, course, dorm, univ]
 
-                # Общие вопросы 1..6: сначала пробуем взять из единой системы (department='general'),
-                # затем fallback на старую таблицу Stage2Answer
-                general_from_unified = dept_ans.get("general") if dept_ans else None
-                if general_from_unified:
-                    row.extend([general_from_unified.get(i, "") for i in range(1, 7)])
+                # Общие вопросы 1..6: приоритет — унифицированная система (department='general'),
+                # затем fallback на Stage2Answer, и в конце — словарь dept_ans (на случай устаревшей выборки)
+                if general_unified_direct:
+                    row.extend([general_unified_direct.get(i, "") for i in range(1, 7)])
                 elif stage2:
                     row.extend([
                         stage2.general_q1_answer or "",
@@ -189,7 +219,12 @@ async def export_to_csv(out_path: Path) -> Path:
                         stage2.general_q6_answer or "",
                     ])
                 else:
-                    row.extend([""] * 6)
+                    # Последняя попытка — из общей карты dept_ans (если general там есть)
+                    general_from_unified = dept_ans.get("general") if dept_ans else None
+                    if general_from_unified:
+                        row.extend([general_from_unified.get(i, "") for i in range(1, 7)])
+                    else:
+                        row.extend([""] * 6)
 
                 # Отделы по заданному порядку, заполняем по номеру вопроса
                 for dept_code, _dept_name, q_count in DEPARTMENTS_ORDER:
