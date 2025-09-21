@@ -66,6 +66,48 @@ class MediaHandler:
             return None
     
     @staticmethod
+    async def send_single_image(dialog_manager: DialogManager, image_path: str, caption: str = "") -> Optional[int]:
+        """
+        Отправляет одно изображение в чат и возвращает message_id для последующего удаления
+        
+        Args:
+            dialog_manager: Менеджер диалога
+            image_path: Путь к изображению
+            caption: Подпись к изображению
+            
+        Returns:
+            message_id отправленного сообщения или None при ошибке
+        """
+        try:
+            # Получаем бота из middleware
+            bot: Bot = dialog_manager.middleware_data.get("bot")
+            if not bot:
+                logger.error("Bot not found in middleware_data")
+                return None
+            
+            # Получаем chat_id из события
+            chat_id = dialog_manager.event.from_user.id
+            
+            # Проверяем существование файла
+            if not os.path.exists(image_path):
+                logger.error(f"Image file not found: {image_path}")
+                return None
+            
+            # Отправляем изображение
+            message = await bot.send_photo(
+                chat_id=chat_id,
+                photo=FSInputFile(image_path),
+                caption=caption
+            )
+            
+            logger.info(f"Sent single image to chat {chat_id}, message_id: {message.message_id}")
+            return message.message_id
+            
+        except Exception as e:
+            logger.error(f"Error sending single image: {e}", exc_info=True)
+            return None
+    
+    @staticmethod
     async def delete_test_images(dialog_manager: DialogManager, message_ids: List[int]) -> bool:
         """
         Удаляет отправленные ранее изображения
@@ -101,6 +143,38 @@ class MediaHandler:
             
         except Exception as e:
             logger.error(f"Error deleting test images: {e}", exc_info=True)
+            return False
+    
+    @staticmethod
+    async def delete_single_message(dialog_manager: DialogManager, message_id: int) -> bool:
+        """
+        Удаляет одно отправленное сообщение
+        
+        Args:
+            dialog_manager: Менеджер диалога
+            message_id: ID сообщения для удаления
+            
+        Returns:
+            True если удаление прошло успешно, False при ошибке
+        """
+        try:
+            # Получаем бота из middleware
+            bot: Bot = dialog_manager.middleware_data.get("bot")
+            if not bot:
+                logger.error("Bot not found in middleware_data")
+                return False
+            
+            # Получаем chat_id из события
+            chat_id = dialog_manager.event.from_user.id
+            
+            # Удаляем сообщение
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+            
+            logger.info(f"Successfully deleted message {message_id} from chat {chat_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting message {message_id}: {e}", exc_info=True)
             return False
     
     @staticmethod

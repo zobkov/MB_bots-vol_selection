@@ -13,6 +13,8 @@ class TestQuestion:
     text: str
     time_limit: int  # секунды
     correct_answer: Optional[str] = None
+    media_path: Optional[str] = None  # Путь к изображению для этого вопроса
+    media_caption: str = ""  # Подпись к изображению
     
     def __post_init__(self):
         """Валидация данных"""

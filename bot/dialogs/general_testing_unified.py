@@ -10,6 +10,12 @@ from bot.dialogs.checkpoint_utils import save_general_questions_completion_check
 logger = logging.getLogger(__name__)
 
 
+def get_image_path(filename: str) -> str:
+    """Получение полного пути к изображению"""
+    base_path = "/Users/artyomzobkov/vol_selection_MB_bot"
+    return os.path.join(base_path, "bot", "assets", "images", filename)
+
+
 # Вопросы для общего тестирования
 GENERAL_QUESTIONS = [
     TestQuestion(
@@ -39,13 +45,17 @@ GENERAL_QUESTIONS = [
         number=5,
         text="Расположение аудиторий на 1-ом этаже. Укажи последовательность букв, которыми обозначены следующие аудитории: 1206, 1222, 1212, 1301, 1216, 1215.",
         time_limit=90,
-        correct_answer="абвгде"
+        correct_answer="абвгде",
+        media_path=get_image_path("first_floor.jpeg"),
+        media_caption="📍 Схема 1-го этажа для навигации"
     ),
     TestQuestion(
         number=6,
         text="Расположение аудиторий на 2-ом этаже. Укажи последовательность букв, которыми обозначены следующие аудитории: 2222, 2229.",
         time_limit=30,
-        correct_answer="аб"
+        correct_answer="аб",
+        media_path=get_image_path("second_floor.jpeg"),
+        media_caption="📍 Схема 2-го этажа для навигации"
     )
 ]
 
@@ -59,27 +69,14 @@ async def save_general_checkpoint(dialog_manager):
         logger.error(f"Error saving general questions checkpoint: {e}", exc_info=True)
 
 
-def get_general_media_paths():
-    """Получение путей к изображениям для общих вопросов"""
-    base_path = "/Users/artyomzobkov/vol_selection_MB_bot"
-    return [
-        os.path.join(base_path, "bot", "assets", "images", "first_floor.jpeg"),
-        os.path.join(base_path, "bot", "assets", "images", "second_floor.jpeg")
-    ]
-
-
-# Конфигурация общих вопросов
+# Конфигурация общих вопросов (без отправки медиа в начале)
 GENERAL_CONFIG = TestConfig(
     test_type="general",
     display_name="Общие вопросы",
     icon="📝",
     questions=GENERAL_QUESTIONS,
     states_group=GeneralQuestionsSG,
-    checkpoint_callback=save_general_checkpoint,
-    # Конфигурация медиа
-    send_media_on_start=True,
-    media_paths=get_general_media_paths(),
-    media_caption="📍 Схемы расположения аудиторий для вопросов о навигации"
+    checkpoint_callback=save_general_checkpoint
 )
 
 # Создание диалога с использованием универсальной системы
