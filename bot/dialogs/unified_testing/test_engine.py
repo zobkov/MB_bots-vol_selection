@@ -71,12 +71,9 @@ class TestEngine:
         )
         
         self.active_tests[user_id] = progress
-        
-    # Сохраняем начало теста в dialog_data
+        # Сохраняем только сериализуемый флаг старта (в Redis хранится JSON)
         dialog_manager.dialog_data[f"test_{config.test_type}_started"] = True
-        dialog_manager.dialog_data[f"test_{config.test_type}_config"] = config
-        dialog_manager.dialog_data[f"test_{config.test_type}_progress"] = progress
-        
+
         logger.info(f"Test {config.test_type} started for user {user_id}, total questions: {len(config.questions)}")
         return progress
     
