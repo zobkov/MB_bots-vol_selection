@@ -167,6 +167,7 @@ poetry.lock
 /pgadmin-data/
 
 test_*.py
+!test_engine.py
 edu_project/
 
 app/storage/resumes/
