@@ -1,6 +1,7 @@
 """
 Генератор универсальных диалогов тестирования
 """
+import asyncio
 import logging
 from typing import List, Dict, Any, Callable
 from aiogram.types import Message, CallbackQuery
@@ -23,6 +24,14 @@ class UniversalTestDialogGenerator:
         """Создание геттера для конкретного вопроса"""
         async def get_question_data(dialog_manager: DialogManager = None, **kwargs):
             logger.debug(f"Getting data for {config.test_type} question {question.number}")
+            
+                        # Проверяем глобальные pending timeout переходы - больше не используется
+            # Переходы теперь выполняются прямо в timeout callback через bg_manager.next()
+            
+            # Запускаем таймер если находимся в правильном состоянии
+            
+            # Проверяем флаги таймаута от bg_manager и обрабатываем если есть (устаревшая система)
+            # Больше не используем эту систему, всё переведено на глобальное состояние pending_transitions
             
             # Отправляем медиа при первом вопросе если требуется (старый способ)
             if question.number == 1 and config.send_media_on_start:
@@ -165,8 +174,19 @@ class UniversalTestDialogGenerator:
                 # Проверяем, нужно ли завершить тест
                 test_completed_key = f"test_{config.test_type}_completed"
                 if not dialog_manager.dialog_data.get(test_completed_key, False):
-                    # Завершаем тест только один раз
-                    await test_engine.complete_test(dialog_manager, config)
+                    logger.info(f"Test {config.test_type} completion processing started for user {dialog_manager.event.from_user.id}")
+                    
+                    # Устанавливаем флаг СРАЗУ, чтобы избежать повторных вызовов
+                    dialog_manager.dialog_data[test_completed_key] = True
+                    
+                    # Завершаем тест синхронно (только если не был завершен в timeout)
+                    try:
+                        await test_engine.complete_test(dialog_manager, config)
+                        logger.info(f"Test {config.test_type} completion finished for user {dialog_manager.event.from_user.id}")
+                    except Exception as e:
+                        logger.error(f"Error in completion processing: {e}", exc_info=True)
+                else:
+                    logger.info(f"Test {config.test_type} already completed (probably by timeout) for user {dialog_manager.event.from_user.id}")
                     
             return {
                 "test_display_name": config.display_name,

@@ -84,21 +84,23 @@ class EnhancedTimerManager:
             logger.debug(f"Starting countdown for {timer_key}, user {user_id}, duration={duration}")
             
             # Обновляем прогресс каждые 2 секунды
-            for remaining in range(duration, 0, -2):
+            elapsed = 0
+            while elapsed < duration:
                 await asyncio.sleep(2)
+                elapsed += 2
                 
                 # Проверяем, что задача не была отменена
                 current_task = asyncio.current_task()
                 if current_task and current_task.cancelled():
                     logger.debug(f"Timer {timer_key} cancelled")
-                    break
+                    return
                 
                 # Проверяем, что таймер все еще активен
                 if not self._is_timer_active(user_id, timer_key):
                     logger.debug(f"Timer {timer_key} no longer active")
-                    break
+                    return
                 
-                actual_remaining = max(0, remaining - 1)
+                actual_remaining = max(0, duration - elapsed)
                 progress = (actual_remaining / duration) * 100
                 
                 # Обновляем данные через background manager
@@ -112,20 +114,12 @@ class EnhancedTimerManager:
                 except OutdatedIntent as e:
                     # OutdatedIntent - это нормально при переходах между диалогами
                     logger.debug(f"Timer {timer_key} context outdated (OutdatedIntent), stopping timer gracefully: {e}")
-                    break
+                    return
                 except Exception as e:
                     # Другие ошибки
                     error_type = type(e).__name__
                     logger.debug(f"Error updating bg_manager for {timer_key}: {error_type}: {e}")
-                    break
-                
-                if actual_remaining <= 0:
-                    break
-            
-            # Проверяем отмену перед таймаутом
-            current_task = asyncio.current_task()
-            if current_task and current_task.cancelled():
-                return
+                    return
             
             # Время истекло - вызываем callback
             logger.debug(f"Timer {timer_key} timed out")
@@ -304,17 +298,26 @@ class EnhancedTimerManager:
     def get_user_timer_stats(self, user_id: int) -> Dict[str, Any]:
         """Получение статистики таймеров пользователя"""
         if user_id not in self.user_timers:
-            return {"active_count": 0, "timers": []}
+            return {"active_timers": 0, "timer_keys": []}
         
-        timers = []
+        active_timers = []
         for timer_key, task in self.user_timers[user_id].items():
-            timers.append({
-                "key": timer_key,
-                "is_done": task.done(),
-                "is_cancelled": task.cancelled() if not task.done() else False
-            })
+            if task and not task.done():
+                active_timers.append(timer_key)
         
         return {
-            "active_count": len([t for t in timers if not t["is_done"]]),
-            "timers": timers
+            "active_timers": len(active_timers),
+            "timer_keys": active_timers
         }
+    
+    def _is_timer_active(self, user_id: int, timer_key: str) -> bool:
+        """Проверка активности конкретного таймера"""
+        if user_id not in self.user_timers:
+            return False
+        
+        task = self.user_timers[user_id].get(timer_key)
+        return task is not None and not task.done()
+
+
+# Глобальный экземпляр менеджера таймеров
+enhanced_timer_manager = EnhancedTimerManager()

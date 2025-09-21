@@ -21,6 +21,7 @@ from bot.middlewares import LoggingMiddleware
 from bot.keyboards.command_menu import set_main_menu
 from utils.logging_config import setup_logging, log_error, log_user_action
 from utils.google_services import setup_google_sheets_service
+from bot.dialogs.unified_testing.test_engine import set_global_database
 
 
 async def main():
@@ -70,6 +71,9 @@ async def main():
         # Создаем таблицы
         await db.create_tables()
         logger.info("🗄️ База данных инициализирована")
+        
+        # Устанавливаем глобальный доступ к БД для timeout обработки
+        set_global_database(db)
         
         # Настраиваем Google Sheets сервис
         google_sheets_service = setup_google_sheets_service(config)
