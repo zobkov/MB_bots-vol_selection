@@ -192,16 +192,32 @@ class TestEngine:
                 if question_num < len(config.questions):
                     next_state = getattr(config.states_group, f"q{question_num+1}")
                 else:
-                    # Помечаем, что тест будет завершён, чтобы геттеры вопросов знали об этом
+                    # Помечаем, что завершение ожидается (для мгновенного редиректа геттеров)
                     try:
                         if dialog_manager:
-                            dialog_manager.dialog_data[f"test_{config.test_type}_persisted"] = True
+                            dialog_manager.dialog_data[f"test_{config.test_type}_completion_pending"] = True
+                    except Exception:
+                        pass
+                    # На всякий случай останавливаем все таймеры пользователя
+                    try:
+                        if dialog_manager and getattr(dialog_manager, 'event', None):
+                            await self.timer_manager.stop_all_user_timers(dialog_manager.event.from_user.id)
                     except Exception:
                         pass
                     next_state = getattr(config.states_group, "completed")
                 await bg_manager.switch_to(next_state)
             except Exception as trans_err:
                 logger.error(f"Timeout transition error for {timer_key}: {trans_err}", exc_info=True)
+                # Надёжный фоллбэк: помечаем целевое состояние и даём геттерам выполнить переход
+                try:
+                    if dialog_manager:
+                        advance_key = f"test_{config.test_type}_advance_to"
+                        if question_num < len(config.questions):
+                            dialog_manager.dialog_data[advance_key] = question_num + 1
+                        else:
+                            dialog_manager.dialog_data[advance_key] = "completed"
+                except Exception:
+                    pass
         except Exception as e:
             logger.error(f"Error handling timeout for {timer_key}: {e}", exc_info=True)
     

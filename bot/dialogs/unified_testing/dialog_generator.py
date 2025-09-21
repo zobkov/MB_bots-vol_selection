@@ -24,6 +24,27 @@ class UniversalTestDialogGenerator:
         """Создание геттера для конкретного вопроса"""
         async def get_question_data(dialog_manager: DialogManager = None, **kwargs):
             logger.debug(f"Getting data for {config.test_type} question {question.number}")
+            # Обработка аварийного флага перехода после таймаута
+            try:
+                advance_key = f"test_{config.test_type}_advance_to"
+                advance_to = dialog_manager.dialog_data.get(advance_key)
+                if advance_to is not None:
+                    if advance_to == "completed":
+                        await dialog_manager.switch_to(getattr(config.states_group, 'completed'))
+                    elif isinstance(advance_to, int) and 1 <= advance_to <= len(config.questions):
+                        await dialog_manager.switch_to(getattr(config.states_group, f'q{advance_to}'))
+                    # Удаляем флаг после применения
+                    dialog_manager.dialog_data.pop(advance_key, None)
+                    return {
+                        "question_text": question.text,
+                        "question_number": question.number,
+                        "total_questions": len(config.questions),
+                        "time_limit": question.time_limit,
+                        "test_display_name": config.display_name,
+                        "test_icon": config.icon
+                    }
+            except Exception as e:
+                logger.debug(f"advance_to handling failed: {e}")
             # Если результаты уже сохранены (persisted), принудительно переводим в completed
             try:
                 persisted_key = f"test_{config.test_type}_persisted"
@@ -42,6 +63,25 @@ class UniversalTestDialogGenerator:
                     }
             except Exception as e:
                 logger.debug(f"Completion redirect check failed: {e}")
+
+            # Дополнительная страховка: проверяем прогресс в движке
+            try:
+                if dialog_manager and getattr(dialog_manager, 'event', None):
+                    user_id = dialog_manager.event.from_user.id
+                    progress = test_engine.get_progress(user_id)
+                    if progress and (progress.is_completed or len(progress.answers) >= len(config.questions)):
+                        completed_state = getattr(config.states_group, 'completed')
+                        await dialog_manager.switch_to(completed_state)
+                        return {
+                            "question_text": question.text,
+                            "question_number": question.number,
+                            "total_questions": len(config.questions),
+                            "time_limit": question.time_limit,
+                            "test_display_name": config.display_name,
+                            "test_icon": config.icon
+                        }
+            except Exception as e:
+                logger.debug(f"Engine completion redirect check failed: {e}")
             
                         # Проверяем глобальные pending timeout переходы - больше не используется
             # Переходы теперь выполняются прямо в timeout callback через bg_manager.next()
@@ -65,6 +105,20 @@ class UniversalTestDialogGenerator:
             if question.media_path:
                 await test_engine.send_question_media(dialog_manager, config, question)
             
+            # Если завершение ожидается/выполнено — сразу в completed
+            completion_pending = dialog_manager.dialog_data.get(f"test_{config.test_type}_completion_pending", False)
+            completion_done = dialog_manager.dialog_data.get(f"test_{config.test_type}_completion_done", False)
+            if completion_pending or completion_done:
+                await dialog_manager.switch_to(getattr(config.states_group, 'completed'))
+                return {
+                    "question_text": question.text,
+                    "question_number": question.number,
+                    "total_questions": len(config.questions),
+                    "time_limit": question.time_limit,
+                    "test_display_name": config.display_name,
+                    "test_icon": config.icon
+                }
+
             # Запускаем таймер если находимся в правильном состоянии
             if dialog_manager and hasattr(dialog_manager, 'current_context'):
                 current_state = dialog_manager.current_context().state
@@ -104,6 +158,12 @@ class UniversalTestDialogGenerator:
         """Создание обработчика ввода для конкретного вопроса"""
         async def on_input(message: Message, widget, dialog_manager: DialogManager, text: str):
             logger.debug(f"Input received for {config.test_type} q{question.number}: '{text}'")
+            # Если уже помечено завершение — игнорируем ввод и переходим в completed
+            completion_pending = dialog_manager.dialog_data.get(f"test_{config.test_type}_completion_pending", False)
+            completion_done = dialog_manager.dialog_data.get(f"test_{config.test_type}_completion_done", False)
+            if completion_pending or completion_done:
+                await dialog_manager.switch_to(config.states_group.completed)
+                return
             
             # Записываем ответ в память. Даже если был таймаут почти одновременно, save_answer вернёт False
             await test_engine.save_answer(dialog_manager, config, question.number, text)
@@ -189,12 +249,16 @@ class UniversalTestDialogGenerator:
         # Создаем окно завершения теста
         async def completion_getter(dialog_manager: DialogManager = None, **kwargs):
             if dialog_manager:
-                # Идем по новой схеме: сохраняем ВСЕ ответы одним коммитом при первом рендере окна
-                test_persisted_key = f"test_{config.test_type}_persisted"
-                if not dialog_manager.dialog_data.get(test_persisted_key, False):
-                    dialog_manager.dialog_data[test_persisted_key] = True
+                # Сохраняем все ответы одним коммитом при первом рендере окна
+                done_key = f"test_{config.test_type}_completion_done"
+                if not dialog_manager.dialog_data.get(done_key, False):
                     try:
                         await test_engine.persist_results(dialog_manager, config)
+                        dialog_manager.dialog_data[done_key] = True
+                        # Снимаем флаг ожидания, если был
+                        pend_key = f"test_{config.test_type}_completion_pending"
+                        if dialog_manager.dialog_data.get(pend_key):
+                            dialog_manager.dialog_data.pop(pend_key, None)
                     except Exception as e:
                         logger.error(f"Error persisting results in completion window: {e}", exc_info=True)
                     
