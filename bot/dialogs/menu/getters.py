@@ -1,12 +1,7 @@
-from aiogram import types
-from aiogram_dialog import Dialog, DialogManager, Window
-from aiogram_dialog.widgets.kbd import Button, Start, SwitchTo
-from aiogram_dialog.widgets.text import Const, Format
+from aiogram_dialog import DialogManager
 from config.config import Config
 from database.repositories import UserRepository
 from database.db import Database
-
-from bot.states import *
 
 
 async def get_menu_data(dialog_manager: DialogManager, **kwargs):
@@ -28,7 +23,6 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
         )
         
         is_stage1_submitted = db_user.stage1_submitted == "submitted"
-        is_stage2_submitted = db_user.stage2_submitted
         
         # Формируем статус заявки первого этапа
         stage1_status_text = "Заявка подана" if is_stage1_submitted else "Заявка не подана"
@@ -39,28 +33,22 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
             # Если заявка не подана - показываем дедлайн
             stage1_additional_info = f"\n⏰ Дедлайн: {config.selection.stages['stage1']['deadline']}"
         
-        # Формируем статус второго этапа
-        stage2_status_text = "Тестирование завершено" if is_stage2_submitted else "Тестирование не пройдено"
-        
-        # Определяем доступность кнопки второго этапа
-        stage2_available = not is_stage2_submitted
+        # Определяем какие кнопки показывать
+        show_application_button = not is_stage1_submitted
+        show_departments_button = is_stage1_submitted  # Показываем выбор отделов после подачи анкеты
         
     finally:
         await session.close()
     
-    menu_text = f"""🏠 Личный кабинет кандидата в команду волонтеров МБ 2025 - тест второго этапа
+    menu_text = f"""🏠 Личный кабинет кандидата в команду волонтеров МБ 2025
 
 📅 Первый этап: Анкетирование
-📝 Статус заявки: {stage1_status_text}
-
-📋 Второй этап: Тестирование
-⏰ Дедлайн: 25 октября
-📝 Статус: {stage2_status_text}"""
+📝 Статус заявки: {stage1_status_text}{stage1_additional_info}"""
 
     return {
         "menu_text": menu_text,
-        "stage2_available": stage2_available,
-        "stage2_completed": is_stage2_submitted
+        "show_application_button": show_application_button,
+        "show_departments_button": show_departments_button
     }
 
 
@@ -80,37 +68,3 @@ async def get_support_data(dialog_manager: DialogManager, **kwargs):
     return {
         "support_text": support_text
     }
-
-
-menu_dialog = Dialog(
-    Window(
-        Format("{menu_text}"),
-        Start(
-            Const("📝 Перейти ко второму этапу"),
-            id="fill_application",
-            state=Stage2SG.start,
-            when="stage2_available"
-        ),
-        Format(
-            "\n✅ <b>Второй этап завершен!</b>\nПовторное прохождение недоступно.",
-            when="stage2_completed"
-        ),
-        SwitchTo(
-            Const("📞 Поддержка"),
-            id="support",
-            state=MenuSG.support
-        ),
-        state=MenuSG.main,
-        getter=get_menu_data,
-    ),
-    Window(
-        Format("{support_text}"),
-        SwitchTo(
-            Const("🔙 Назад в меню"),
-            id="back_to_menu",
-            state=MenuSG.main
-        ),
-        state=MenuSG.support,
-        getter=get_support_data,
-    ),
-)

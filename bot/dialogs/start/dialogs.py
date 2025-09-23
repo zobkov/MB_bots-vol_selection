@@ -1,15 +1,9 @@
-from aiogram import types
-from aiogram_dialog import Dialog, DialogManager, Window
+from aiogram_dialog import Dialog, Window
 from aiogram_dialog.widgets.kbd import Start
-from aiogram_dialog.widgets.media import StaticMedia
 from aiogram_dialog.widgets.text import Const
 
 from bot.states import StartSG, MenuSG
-
-
-async def get_start_data(dialog_manager: DialogManager, **kwargs):
-    """Геттер данных для стартового диалога"""
-    return {}
+from .getters import get_start_data
 
 
 start_dialog = Dialog(
