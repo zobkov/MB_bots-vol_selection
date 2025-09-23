@@ -9,14 +9,8 @@ from aiogram_dialog import DialogManager
 from aiogram.types import Message
 
 from .models import TestConfig, TestQuestion, TestProgress, TimerData
-from .enhanced_scheduler_timer_utils import (
-    APSchedulerEnhancedTimerManager, 
-    start_timer_background, 
-    stop_timer, 
-    get_timer_progress_data,
-    calculate_time_taken,
-    migrate_old_timers_to_scheduler
-)
+# ИСПОЛЬЗУЕМ НОВУЮ СИСТЕМУ С ИЗОЛИРОВАННЫМИ КЛЮЧАМИ BGMANAGER
+from .timer_service_v2 import get_dialog_timer_service
 
 # Глобальная переменная для доступа к БД в timeout случаях
 _global_db = None
@@ -48,8 +42,17 @@ class TestEngine:
     """
     
     def __init__(self):
-        self.timer_manager = APSchedulerEnhancedTimerManager()
+        # ЛЕНИВАЯ ИНИЦИАЛИЗАЦИЯ: timer_service инициализируется при первом использовании
+        self._timer_service = None
+        # Инициализируем active_tests для отслеживания прогресса тестов
         self.active_tests: Dict[int, TestProgress] = {}  # user_id -> TestProgress
+        
+    @property
+    def timer_service(self):
+        """Ленивая инициализация timer_service"""
+        if self._timer_service is None:
+            self._timer_service = get_dialog_timer_service()
+        return self._timer_service
         
     def get_user_timer_key(self, user_id: int, test_type: str, question_num: int) -> str:
         """Генерация ключа таймера для конкретного пользователя"""
@@ -86,8 +89,8 @@ class TestEngine:
         except Exception as e:
             logger.debug(f"Failed to cleanup stale dialog_data for {config.test_type}: {e}")
 
-        # Останавливаем все активные таймеры пользователя
-        await self.timer_manager.stop_all_user_timers(user_id)
+        # Останавливаем все активные таймеры пользователя через НОВУЮ СИСТЕМУ
+        await self.timer_service.cancel_all_user_timers(user_id)
         
         # Создаем новый прогресс теста
         progress = TestProgress(
@@ -107,29 +110,36 @@ class TestEngine:
     
     async def start_question_timer(self, dialog_manager: DialogManager, config: TestConfig, 
                                  question: TestQuestion) -> str:
-        """Запуск таймера для вопроса"""
+        """Запуск таймера для вопроса с НОВОЙ СИСТЕМОЙ timer_service_v2"""
         user_id = dialog_manager.event.from_user.id
-        timer_key = self.get_user_timer_key(user_id, config.test_type, question.number)
         
-        # ВАЖНО: Сначала останавливаем все старые таймеры пользователя
-        # Это предотвращает OutdatedIntent ошибки при переходах между диалогами
-        await self.timer_manager.stop_all_user_timers(user_id)
-        logger.debug(f"Stopped all existing timers for user {user_id} before starting new timer")
+        # Получаем chat_id правильным способом
+        if hasattr(dialog_manager.event, 'message') and dialog_manager.event.message:
+            chat_id = dialog_manager.event.message.chat.id
+        elif hasattr(dialog_manager.event, 'chat') and dialog_manager.event.chat:
+            chat_id = dialog_manager.event.chat.id
+        else:
+            chat_id = user_id  # Fallback для CallbackQuery
         
-        # Создаем callback для таймаута
-        async def timeout_callback(bg_manager, timer_key: str):
-            await self.handle_timeout(bg_manager, config, question.number, timer_key)
+        # ВАЖНО: Сначала останавливаем все старые таймеры через новую систему
+        try:
+            await self.timer_service.cancel_all_user_timers(user_id)
+            logger.debug(f"Stopped all existing timers for user {user_id} before starting new timer")
+        except Exception as e:
+            logger.warning(f"Error stopping timers for user {user_id}: {e}")
         
-        # Запускаем таймер через enhanced timer manager
-        await self.timer_manager.start_timer_background(
-            dialog_manager, 
-            timer_key, 
-            question.time_limit,
-            timeout_callback
+        # Запускаем таймер через НОВУЮ СИСТЕМУ timer_service_v2 с изолированными ключами
+        job_id = await self.timer_service.start_question_timer(
+            dialog_manager=dialog_manager,
+            user_id=user_id,
+            chat_id=chat_id,
+            test_type=config.test_type,
+            question_number=question.number,
+            duration_seconds=question.time_limit
         )
         
-        logger.info(f"Timer started for user {user_id}, {config.test_type} q{question.number}, duration: {question.time_limit}s")
-        return timer_key
+        logger.info(f"Timer started (V2) for user {user_id}, {config.test_type} q{question.number}, duration: {question.time_limit}s, job_id: {job_id}")
+        return job_id
     
     async def save_answer(self, dialog_manager: DialogManager, config: TestConfig, 
                          question_num: int, answer: str, is_timeout: bool = False) -> bool:
@@ -152,11 +162,12 @@ class TestEngine:
         )
         
         try:
-            # Останавливаем таймер (если ещё активен)
-            await self.timer_manager.stop_timer(dialog_manager, timer_key)
+            # Останавливаем таймер через НОВУЮ СИСТЕМУ (если ещё активен)
+            timer_job_id = f"timer_{user_id}_{config.test_type}_q{question_num}"
+            await self.timer_service.cancel_timer(timer_job_id)
             
-            # Время ответа
-            time_taken = calculate_time_taken(dialog_manager, timer_key)
+            # Время ответа - используем простое приближение (TODO: улучшить в timer_service_v2)
+            time_taken = 0.0  # В новой системе время не отслеживается таким образом
             
             # Получаем вопрос
             question = next((q for q in config.questions if q.number == question_num), None)
@@ -290,10 +301,10 @@ class TestEngine:
                             dialog_manager.dialog_data[f"test_{config.test_type}_advance_to"] = "completed"
                     except Exception:
                         pass
-                    # На всякий случай останавливаем все таймеры пользователя
+                    # На всякий случай останавливаем все таймеры пользователя через НОВУЮ СИСТЕМУ
                     try:
                         if dialog_manager and getattr(dialog_manager, 'event', None):
-                            await self.timer_manager.stop_all_user_timers(dialog_manager.event.from_user.id)
+                            await self.timer_service.cancel_all_user_timers(dialog_manager.event.from_user.id)
                     except Exception:
                         pass
                     next_state = getattr(config.states_group, "completed")
@@ -322,8 +333,8 @@ class TestEngine:
         logger.info(f"Persisting results for {config.test_type} test, user {user_id}")
 
         try:
-            # Стоп всех таймеров пользователя
-            await self.timer_manager.stop_all_user_timers(user_id)
+            # Стоп всех таймеров пользователя через НОВУЮ СИСТЕМУ
+            await self.timer_service.cancel_all_user_timers(user_id)
 
             progress = self.active_tests.get(user_id)
             if not progress:
@@ -524,7 +535,7 @@ class TestEngine:
     
     async def cleanup_user_test(self, user_id: int):
         """Очистка данных теста пользователя"""
-        await self.timer_manager.stop_all_user_timers(user_id)
+        await self.timer_service.cancel_all_user_timers(user_id)
         if user_id in self.active_tests:
             del self.active_tests[user_id]
         logger.info(f"Cleaned up test data for user {user_id}")

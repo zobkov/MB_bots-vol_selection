@@ -129,6 +129,34 @@ async def _publish_timeout_event_static(payload: dict, redis_config: dict):
             logger.debug(f"Job {job_id} not found for cancellation")
 
 
+def create_state_monitor_task(config, question, dialog_manager):
+    """Создание seq-версионированного монитора состояния"""
+    # берем текущую seq
+    seq_key = f"seq_{config.test_type}"
+    current_seq = dialog_manager.dialog_data.get(seq_key, 0)
+
+    async def _monitor():
+        await asyncio.sleep(2.0)
+        # проверяем seq
+        if dialog_manager.dialog_data.get(seq_key) != current_seq:
+            logger.debug("⏭ Monitor stale (seq changed). Exit.")
+            return
+
+        # проверяем активен ли таймер
+        timer_key = f"timer_{config.test_type}_q{question.number}_started"
+        if not dialog_manager.dialog_data.get(timer_key):
+            return
+
+        current_state = dialog_manager.current_context().state
+        expected_state = getattr(config.states_group, f"q{question.number}")
+        if current_state != expected_state:
+            logger.warning(f"Monitor forcing rollback: expected {expected_state}, got {current_state}")
+            await dialog_manager.switch_to(expected_state)
+
+    task = asyncio.create_task(_monitor())
+    dialog_manager.dialog_data[f"monitor_task_{config.test_type}_q{question.number}"] = task
+
+
 class DialogTimerService:
     """
     Сервис управления таймерами диалогов
@@ -215,6 +243,32 @@ class DialogTimerService:
             
             logger.info(f"🎯 Created BgManager for {job_id}: user_id={user_id}, chat_id={chat_id}")
             
+            # 🛡️ КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Предварительная инициализация данных
+            # Устанавливаем начальные данные в dialog_data для предотвращения возврата к старому состоянию
+            parts = job_id.split('_')
+            if len(parts) >= 4:
+                test_type = parts[2]
+                question_part = parts[3]  # q1, q2, etc.
+                question_number = question_part[1:] if question_part.startswith('q') else question_part
+                
+                timer_key_prefix = f"timer_{test_type}_q{question_number}"
+                initial_minutes = duration_seconds // 60
+                initial_seconds = duration_seconds % 60
+                
+                # Предварительно заполняем данные для предотвращения реверта состояния
+                initial_data = {
+                    f"{timer_key_prefix}_minutes": initial_minutes,
+                    f"{timer_key_prefix}_seconds": initial_seconds,
+                    f"{timer_key_prefix}_progress": 100.0,
+                    f"{timer_key_prefix}_remaining": float(duration_seconds),
+                    f"{timer_key_prefix}_active": True,
+                    f"{timer_key_prefix}_status": "initializing"
+                }
+                
+                # Обновляем dialog_data напрямую
+                dialog_manager.dialog_data.update(initial_data)
+                logger.debug(f"🛡️ Pre-initialized timer data for {job_id}: {initial_data}")
+            
             # 2. Планируем APScheduler job для timeout события
             payload = {
                 "job_id": job_id,
@@ -228,7 +282,7 @@ class DialogTimerService:
             self.scheduler.schedule_timeout(job_id, run_at, payload)
             logger.info(f"⏰ Scheduled APScheduler timeout for {job_id} at {run_at}")
             
-            # 3. Запускаем локальный loop для обновления UI
+            # 3. Запускаем локальный loop для обновления UI (с задержкой для стабилизации состояния)
             start_time = datetime.now()
             update_task = asyncio.create_task(
                 self._local_ui_update_loop(bg_manager, job_id, start_time, duration_seconds)
@@ -246,7 +300,8 @@ class DialogTimerService:
                 "chat_id": chat_id,
                 "test_type": test_type,
                 "question_number": question_number,
-                "duration": duration_seconds
+                "duration": duration_seconds,
+                "dialog_manager": dialog_manager  # Сохраняем для timeout handling
             }
             
             logger.info(f"Started question timer {job_id} for {duration_seconds}s")
@@ -287,16 +342,36 @@ class DialogTimerService:
             except Exception as job_error:
                 logger.warning(f"⚠️ Failed to cancel APScheduler job {job_id}: {job_error}")
             
-            # Обновляем UI - показываем что таймер остановлен
+            # Обновляем UI - показываем что таймер остановлен с ИЗОЛИРОВАННЫМИ КЛЮЧАМИ
             bg_manager = timer_info["bg_manager"]
             try:
-                await bg_manager.update({
-                    "timer_seconds": 0,
-                    "timer_minutes": 0,
-                    "progress_percent": 0,
-                    "is_timer_active": False,
-                    "timer_status": "cancelled"
-                })
+                # Извлекаем test_type и question_number из job_id для изолированных ключей
+                parts = job_id.split('_')
+                if len(parts) >= 4:
+                    test_type = parts[2]
+                    question_part = parts[3]  # q1, q2, etc.
+                    question_number = question_part[1:] if question_part.startswith('q') else question_part
+                    
+                    timer_key_prefix = f"timer_{test_type}_q{question_number}"
+                    
+                    cancel_data = {
+                        f"{timer_key_prefix}_seconds": 0,
+                        f"{timer_key_prefix}_minutes": 0,
+                        f"{timer_key_prefix}_progress": 0,
+                        f"{timer_key_prefix}_active": False,
+                        f"{timer_key_prefix}_status": "cancelled"
+                    }
+                    await bg_manager.update(cancel_data)
+                    logger.debug(f"✅ Updated UI with isolated cancel data for {job_id}")
+                else:
+                    # Fallback
+                    await bg_manager.update({
+                        "timer_seconds": 0,
+                        "timer_minutes": 0,
+                        "progress_percent": 0,
+                        "is_timer_active": False,
+                        "timer_status": "cancelled"
+                    })
             except Exception as e:
                 logger.debug(f"Failed to update UI on timer cancel: {e}")
             
@@ -305,6 +380,34 @@ class DialogTimerService:
         except Exception as e:
             logger.error(f"Error cancelling timer {job_id}: {e}", exc_info=True)
     
+    async def cancel_all_user_timers(self, user_id: int):
+        """
+        Отменяет все активные таймеры для указанного пользователя
+        
+        Args:
+            user_id: ID пользователя
+        """
+        cancelled_count = 0
+        
+        # Находим все таймеры пользователя по паттерну job_id
+        user_timers = []
+        for job_id in list(self.active_timers.keys()):
+            # Паттерн job_id: timer_{user_id}_{test_type}_q{question_number}
+            if job_id.startswith(f"timer_{user_id}_"):
+                user_timers.append(job_id)
+        
+        # Отменяем каждый таймер
+        for job_id in user_timers:
+            try:
+                await self.cancel_timer(job_id)
+                cancelled_count += 1
+                logger.debug(f"Cancelled user timer: {job_id}")
+            except Exception as e:
+                logger.warning(f"Failed to cancel user timer {job_id}: {e}")
+        
+        logger.info(f"Cancelled {cancelled_count} timers for user {user_id}")
+        return cancelled_count
+    
     async def _local_ui_update_loop(self, bg_manager, job_id: str, start_time: datetime, duration_seconds: int):
         """
         Локальный asyncio loop для плавного обновления UI каждую секунду
@@ -312,12 +415,18 @@ class DialogTimerService:
         """
         logger.info(f"🔄 Starting UI update loop for {job_id}, duration: {duration_seconds}s")
         
+        # КРИТИЧЕСКАЯ ЗАДЕРЖКА: Ждем стабилизации состояния диалога перед BgManager updates
+        # Это предотвращает corruption состояния после переходов q1→q2→q3
+        await asyncio.sleep(0.5)
+        logger.debug(f"🛡️ State stabilization delay completed for {job_id}")
+        
         try:
             iteration = 0
             while True:
                 current_time = datetime.now()
                 elapsed = (current_time - start_time).total_seconds()
-                remaining = max(0, duration_seconds - elapsed)
+                # Компенсируем задержку стабилизации в оставшемся времени
+                remaining = max(0, duration_seconds - elapsed + 0.5)  # +0.5 для компенсации задержки
                 
                 # Обновляем данные в dialog через BgManager
                 timer_minutes = int(remaining // 60)
@@ -334,23 +443,40 @@ class DialogTimerService:
                     break
                 
                 try:
-                    # BgManager API: обновляем данные в dialog_data 
-                    update_data = {
-                        "timer_minutes": timer_minutes,
-                        "timer_seconds": timer_seconds,
-                        "timer_progress": progress_percent,
-                        "remaining_time": remaining,
-                        "progress_percent": progress_percent,
-                        "is_timer_active": True,
-                        "timer_status": "running"
-                    }
+                    # 🚫 DISABLED: BgManager updates cause state corruption in aiogram-dialog
+                    # The BgManager.update() call was causing q2→q1 state reversion
+                    # Alternative: Use static timer display without live updates
                     
-                    logger.debug(f"🔄 About to call BgManager.update for {job_id} with data: {update_data}")
-                    await bg_manager.update(update_data)
-                    logger.debug(f"✅ BgManager.update completed for {job_id}")
+                    # ORIGINAL CODE (causes state reversion):
+                    # BgManager API: обновляем данные в dialog_data с ИЗОЛИРОВАННЫМИ КЛЮЧАМИ
+                    # Извлекаем test_type и question_number из job_id
+                    # Формат: timer_{user_id}_{test_type}_q{question_number}
+                    parts = job_id.split('_')
+                    if len(parts) >= 4:
+                        test_type = parts[2]
+                        question_part = parts[3]  # q1, q2, etc.
+                        question_number = question_part[1:] if question_part.startswith('q') else question_part
+                        
+                        # ИЗОЛИРОВАННЫЕ КЛЮЧИ для каждого вопроса - НО ОТКЛЮЧЕНО
+                        timer_key_prefix = f"timer_{test_type}_q{question_number}"
+                        
+                        update_data = {
+                            f"{timer_key_prefix}_minutes": timer_minutes,
+                            f"{timer_key_prefix}_seconds": timer_seconds,
+                            f"{timer_key_prefix}_progress": progress_percent,
+                            f"{timer_key_prefix}_remaining": remaining,
+                            f"{timer_key_prefix}_active": True,
+                            f"{timer_key_prefix}_status": "running"
+                        }
+                        
+                        logger.debug(f"� SKIPPED BgManager.update for {job_id} to prevent state corruption: {update_data}")
+                        # await bg_manager.update(update_data)  # DISABLED
+                        logger.debug(f"✅ BgManager.update SKIPPED for {job_id} - no state corruption")
+                    else:
+                        logger.debug(f"� SKIPPED fallback BgManager update for {job_id} (state corruption prevention)")
                         
                 except Exception as bg_error:
-                    logger.error(f"❌ BgManager update failed for {job_id}: {bg_error}", exc_info=True)
+                    logger.error(f"❌ BgManager logic error for {job_id}: {bg_error}", exc_info=True)
                     # Продолжаем работу даже при ошибке BgManager
                 
                 await asyncio.sleep(2)  # Обновляем каждые 2 секунды
@@ -422,18 +548,38 @@ class DialogTimerService:
             if not update_task.done():
                 update_task.cancel()
             
-            # Обновляем UI - показываем timeout
+            # Обновляем UI - показываем timeout с ИЗОЛИРОВАННЫМИ КЛЮЧАМИ
             bg_manager = timer_info["bg_manager"]
-            await bg_manager.update({
-                "timer_seconds": 0,
-                "timer_minutes": 0,
-                "progress_percent": 0,
-                "is_timer_active": False,
-                "timer_status": "timeout"
-            })
             
-            # Здесь можно добавить переход к следующему состоянию диалога
-            # await bg_manager.switch_to(SomeState.completed)
+            # Парсим job_id для получения информации о тесте
+            # Формат: timer_{user_id}_{test_type}_q{question_number}
+            parts = job_id.split('_')
+            if len(parts) >= 4:
+                test_type = parts[2]
+                question_part = parts[3]  # q1, q2, etc.
+                question_number = question_part[1:] if question_part.startswith('q') else question_part
+                
+                timer_key_prefix = f"timer_{test_type}_q{question_number}"
+                
+                timeout_data = {
+                    f"{timer_key_prefix}_seconds": 0,
+                    f"{timer_key_prefix}_minutes": 0,
+                    f"{timer_key_prefix}_progress": 0,
+                    f"{timer_key_prefix}_active": False,
+                    f"{timer_key_prefix}_status": "timeout"
+                }
+                await bg_manager.update(timeout_data)
+                logger.debug(f"✅ Updated UI with isolated timeout data for {job_id}")
+                
+                user_id = int(parts[1])
+                test_type = parts[2]
+                question_part = parts[3]  # q1, q2, etc.
+                
+                if question_part.startswith('q'):
+                    current_question = int(question_part[1:])
+                    
+                    # Обрабатываем таймаут через Test Engine
+                    await self._handle_question_timeout(user_id, test_type, current_question, bg_manager, timer_info)
             
             logger.info(f"Handled timeout event for {job_id}")
             
@@ -442,6 +588,58 @@ class DialogTimerService:
         finally:
             # Cleanup
             self.active_timers.pop(job_id, None)
+    
+    async def _handle_question_timeout(self, user_id: int, test_type: str, current_question: int, bg_manager, timer_info: dict):
+        """
+        Обработка таймаута конкретного вопроса - переход к следующему или завершение теста
+        """
+        try:
+            from .test_engine_v2 import get_test_engine
+            
+            # Получаем dialog_manager из timer_info
+            dialog_manager = timer_info.get("dialog_manager")
+            if not dialog_manager:
+                logger.error(f"No dialog_manager found for timeout handling of {test_type} q{current_question}")
+                return
+            
+            test_engine = get_test_engine()
+            
+            # Сохраняем пустой ответ для пропущенного вопроса
+            answer_key = f"{test_type}_q{current_question}_answer"
+            time_key = f"{test_type}_q{current_question}_time"
+            
+            dialog_manager.dialog_data[answer_key] = "[TIMEOUT - NO ANSWER]"
+            dialog_manager.dialog_data[time_key] = datetime.utcnow().isoformat()
+            
+            # Определяем следующий шаг (предполагаем 6 вопросов в тесте)
+            if current_question >= 6:
+                # Последний вопрос - завершаем тест
+                logger.info(f"Timeout on last question {current_question} for {test_type}, completing test")
+                
+                # Создаем временную конфигурацию для завершения теста
+                from .models import TestConfig
+                from bot.states import GeneralQuestionsSG  # TODO: Использовать правильные состояния для разных тестов
+                
+                temp_config = TestConfig(
+                    test_type=test_type,
+                    display_name=test_type.title(),
+                    icon="📝",
+                    questions=[],  # Не нужны для завершения
+                    states_group=GeneralQuestionsSG
+                )
+                
+                await dialog_manager.switch_to(temp_config.states_group.completed)
+            else:
+                # Переходим к следующему вопросу
+                next_question = current_question + 1
+                logger.info(f"Timeout on question {current_question} for {test_type}, moving to question {next_question}")
+                
+                from bot.states import GeneralQuestionsSG  # TODO: Использовать правильные состояния
+                next_state = getattr(GeneralQuestionsSG, f'q{next_question}')
+                await dialog_manager.switch_to(next_state)
+            
+        except Exception as e:
+            logger.error(f"Error handling question timeout: {e}", exc_info=True)
 
 
 # Глобальный экземпляр сервиса (будет инициализирован в main.py)
