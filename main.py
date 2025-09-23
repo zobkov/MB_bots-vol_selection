@@ -12,15 +12,24 @@ from database.db import Database
 from database.repositories import UserRepository
 from bot.handlers import router
 from bot.dialogs import (start_dialog, menu_dialog, application_dialog, 
-                        department_selection_dialog)
+                        department_selection_dialog, testing_dialog, general_test_dialog,
+                        department_test_selection_dialog, logistics_test_dialog,
+                        program_test_dialog, partners_test_dialog, pr_test_dialog,
+                        marketing_test_dialog)
 from bot.middlewares import LoggingMiddleware
 from bot.keyboards.command_menu import set_main_menu
 from utils.logging_config import setup_logging, log_error, log_user_action
 from utils.google_services import setup_google_sheets_service
 from utils.scheduler_utils import init_scheduler_manager, shutdown_scheduler_manager
 
+# Глобальные переменные для диалогов
+dp = None
+bot = None
+scheduler = None
+
 
 async def main():
+    global dp, bot, scheduler
     try:
         # Загружаем конфигурацию
         config = load_config()
@@ -77,9 +86,11 @@ async def main():
                 'jobstore_db': config.redis.jobstore_db
             }
             scheduler_manager = await init_scheduler_manager(redis_config)
+            scheduler = scheduler_manager  # Присваиваем глобальной переменной
             logger.info("⏰ APScheduler timer system initialized")
         else:
             scheduler_manager = None
+            scheduler = None
             logger.warning("⚠️ APScheduler disabled in configuration")
         
         # Настраиваем Google Sheets сервис
@@ -110,6 +121,14 @@ async def main():
         dp.include_router(menu_dialog)
         dp.include_router(application_dialog)
         dp.include_router(department_selection_dialog)
+        dp.include_router(testing_dialog)
+        dp.include_router(general_test_dialog)
+        dp.include_router(department_test_selection_dialog)
+        dp.include_router(logistics_test_dialog)
+        dp.include_router(program_test_dialog)
+        dp.include_router(partners_test_dialog)
+        dp.include_router(pr_test_dialog)
+        dp.include_router(marketing_test_dialog)
         
         # Настраиваем диалоги
         setup_dialogs(dp)

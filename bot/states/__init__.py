@@ -36,3 +36,77 @@ class DepartmentSelectionSG(StatesGroup):
     program = State()
     partners = State()
     overview = State()
+
+
+# Система тестирования
+class TestingSG(StatesGroup):
+    """Стартовое окно тестирования"""
+    intro = State()
+
+
+class GeneralTestSG(StatesGroup):
+    """Общее тестирование"""
+    q1 = State()
+    q2 = State()
+    q3 = State()
+    q4 = State()
+    q5 = State()
+    q6 = State()
+    completed = State()
+
+
+class DepartmentTestSelectionSG(StatesGroup):
+    """Выбор отделов для тестирования"""
+    selection = State()
+
+
+class LogisticsTestSG(StatesGroup):
+    """Тестирование отдела Логистика"""
+    q1 = State()
+    q2 = State()
+    q3 = State()
+    q4 = State()
+    q5 = State()
+    q6 = State()
+    completed = State()
+
+
+class ProgramTestSG(StatesGroup):
+    """Тестирование отдела Программа"""
+    q1 = State()
+    q2 = State()
+    q3 = State()
+    q4 = State()
+    q5 = State()
+    q6 = State()
+    completed = State()
+
+
+class PartnersTestSG(StatesGroup):
+    """Тестирование отдела Партнеры"""
+    q1 = State()
+    q2 = State()
+    q3 = State()
+    q4 = State()
+    q5 = State()
+    q6 = State()
+    completed = State()
+
+
+class PRTestSG(StatesGroup):
+    """Тестирование отдела PR"""
+    q1 = State()
+    q2 = State()
+    q3 = State()
+    q4 = State()
+    completed = State()
+
+
+class MarketingTestSG(StatesGroup):
+    """Тестирование отдела Маркетинг"""
+    q1 = State()
+    q2 = State()
+    q3 = State()
+    q4 = State()
+    q5 = State()
+    completed = State()

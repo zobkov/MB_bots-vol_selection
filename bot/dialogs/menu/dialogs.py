@@ -2,7 +2,7 @@ from aiogram_dialog import Dialog, Window
 from aiogram_dialog.widgets.kbd import Button, Start, SwitchTo
 from aiogram_dialog.widgets.text import Const, Format
 
-from bot.states import MenuSG, ApplicationSG, DepartmentSelectionSG
+from bot.states import MenuSG, ApplicationSG, DepartmentSelectionSG, TestingSG
 from .getters import get_menu_data, get_support_data
 
 
@@ -16,10 +16,10 @@ menu_dialog = Dialog(
             when="show_application_button"
         ),
         Start(
-            Const("🏢 Выбрать отделы"),
-            id="select_departments",
-            state=DepartmentSelectionSG.logistics,
-            when="show_departments_button"
+            Const("🧪 Пройти тестирование"),
+            id="start_testing",
+            state=TestingSG.intro,
+            when="show_testing_button"
         ),
         SwitchTo(
             Const("📞 Поддержка"),

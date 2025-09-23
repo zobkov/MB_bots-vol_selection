@@ -35,7 +35,7 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
         
         # Определяем какие кнопки показывать
         show_application_button = not is_stage1_submitted
-        show_departments_button = is_stage1_submitted  # Показываем выбор отделов после подачи анкеты
+        show_testing_button = is_stage1_submitted  # Показываем кнопку тестирования после подачи анкеты
         
     finally:
         await session.close()
@@ -48,7 +48,7 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
     return {
         "menu_text": menu_text,
         "show_application_button": show_application_button,
-        "show_departments_button": show_departments_button
+        "show_testing_button": show_testing_button
     }
 
 
