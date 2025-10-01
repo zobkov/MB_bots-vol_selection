@@ -15,10 +15,9 @@ menu_dialog = Dialog(
             state=ApplicationSG.full_name,
             when="show_application_button"
         ),
-        Start(
-            Const("🧪 Пройти тестирование"),
+        Button(
+            Const("🔒 Пройти тестирование"),
             id="start_testing",
-            state=TestingSG.intro,
             when="show_testing_button"
         ),
         SwitchTo(

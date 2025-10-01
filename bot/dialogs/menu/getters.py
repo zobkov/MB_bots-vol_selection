@@ -42,8 +42,11 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
     
     menu_text = f"""🏠 Личный кабинет кандидата в команду волонтеров МБ 2025
 
-📅 Первый этап: Анкетирование
-📝 Статус заявки: {stage1_status_text}{stage1_additional_info}"""
+📅 Отбор завершен!
+
+📝 Статус заявки: {stage1_status_text}
+
+Результаты тестирования: <b>06.10.2025</b>"""
 
     return {
         "menu_text": menu_text,
