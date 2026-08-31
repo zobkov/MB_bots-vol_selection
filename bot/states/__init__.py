@@ -6,6 +6,12 @@ class StartSG(StatesGroup):
     welcome = State()
 
 
+class MenuSG(StatesGroup):
+    """Главное меню"""
+    main = State()
+    support = State()
+
+
 class ApplicationSG(StatesGroup):
     """Анкета отбора волонтеров 2026"""
     full_name = State()            # 1. ФИО
@@ -21,4 +27,5 @@ class ApplicationSG(StatesGroup):
     overview = State()             # Экран проверки
     edit_menu = State()            # Меню редактирования
     submitted = State()            # Экран успешной отправки
+
 

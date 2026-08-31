@@ -3,6 +3,7 @@ from aiogram.types import BotCommand
 
 LEXICON_COMMANDS_RU: dict[str, str] = {
     '/start': 'Запуск бота / Главный экран',
+    '/menu': 'Личный кабинет',
     '/apply': 'Заполнить анкету волонтера'
 }
 

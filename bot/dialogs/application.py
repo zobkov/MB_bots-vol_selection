@@ -3,11 +3,11 @@ import logging
 from aiogram import types
 from aiogram.types import CallbackQuery, ContentType, Message
 from aiogram_dialog import Dialog, DialogManager, Window, StartMode, ShowMode
-from aiogram_dialog.widgets.kbd import Button, Group, SwitchTo, Cancel, Radio, Column
+from aiogram_dialog.widgets.kbd import Button, Group, Start, SwitchTo, Cancel, Radio, Column
 from aiogram_dialog.widgets.text import Const, Format
 from aiogram_dialog.widgets.input import TextInput, MessageInput
 
-from bot.states import ApplicationSG, StartSG
+from bot.states import ApplicationSG, StartSG, MenuSG
 from database.repositories import UserRepository, ApplicationRepository
 from database.db import Database
 from utils.logging_config import log_user_action
@@ -492,7 +492,13 @@ application_dialog = Dialog(
     Window(
         Const(
             "Спасибо за отклик! Мы вернемся с заданиями следующего этапа <b>22 сентября.</b> "
-            "Обязательно включи уведомления бота, чтобы не потерять связь с нашей орбитой 🕐"
+            'Обязательно включи уведомления бота, чтобы не потерять связь с нашей орбитой <tg-emoji emoji-id="5255731027480975263">🕐</tg-emoji>'
+        ),
+        Start(
+            Const("🏠 Личный кабинет"),
+            id="to_menu_from_submitted",
+            state=MenuSG.main,
+            mode=StartMode.RESET_STACK
         ),
         state=ApplicationSG.submitted,
     ),
