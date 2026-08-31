@@ -52,19 +52,4 @@ async def cmd_apply(message: Message, dialog_manager: DialogManager):
     
     await dialog_manager.start(ApplicationSG.full_name, mode=StartMode.RESET_STACK)
 
-    """Прямой запуск анкеты по команде /apply"""
-    db: Database = dialog_manager.middleware_data.get("db")
-    
-    if db:
-        session = await db.get_session()
-        try:
-            user_repo = UserRepository(session)
-            await user_repo.get_or_create_user(
-                telegram_id=message.from_user.id,
-                telegram_username=message.from_user.username
-            )
-        finally:
-            await session.close()
-    
-    await dialog_manager.start(ApplicationSG.full_name, mode=StartMode.RESET_STACK)
 

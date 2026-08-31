@@ -11,6 +11,7 @@ from bot.states import ApplicationSG, StartSG, MenuSG
 from database.repositories import UserRepository, ApplicationRepository
 from database.db import Database
 from utils.logging_config import log_user_action
+from utils.emojis import emoji, num_emoji
 
 logger = logging.getLogger(__name__)
 
@@ -233,19 +234,19 @@ async def get_overview_data(dialog_manager: DialogManager, **kwargs):
     
     overview_text = f"""📋 <b>Проверь свои ответы перед отправкой:</b>
 
-1️⃣ <b>ФИО:</b> {data.get('full_name', '—')}
-2️⃣ <b>Почта st:</b> {data.get('email_st', '—')}
-3️⃣ <b>Телефон:</b> {data.get('phone', '—')}
-4️⃣ <b>Факультет/направление:</b> {data.get('faculty', '—')}
-5️⃣ <b>Курс:</b> {data.get('course', '—')}
-6️⃣ <b>Готовность (дней):</b> {data.get('days_count', '—')}
-7️⃣ <b>0-й день (21 октября):</b> {day_zero_text}
-8️⃣ <b>Желаемая роль:</b> {data.get('preferred_role', '—')}
+{num_emoji(1)} <b>ФИО:</b> {data.get('full_name', '—')}
+{num_emoji(2)} <b>Почта st:</b> {data.get('email_st', '—')}
+{num_emoji(3)} <b>Телефон:</b> {data.get('phone', '—')}
+{num_emoji(4)} <b>Факультет/направление:</b> {data.get('faculty', '—')}
+{num_emoji(5)} <b>Курс:</b> {data.get('course', '—')}
+{num_emoji(6)} <b>Готовность (дней):</b> {data.get('days_count', '—')}
+{num_emoji(7)} <b>0-й день (21 октября):</b> {day_zero_text}
+{num_emoji(8)} <b>Желаемая роль:</b> {data.get('preferred_role', '—')}
 
-9️⃣ <b>Почему ты - идеальный волонтер:</b>
+{num_emoji(9)} <b>Почему ты - идеальный волонтер:</b>
 {data.get('motivation', '—')}
 
-🔟 <b>Опыт волонтерства:</b>
+{num_emoji(10)} <b>Опыт волонтерства:</b>
 {data.get('volunteer_experience', '—')}"""
 
     return {"overview_text": overview_text}
@@ -308,7 +309,7 @@ async def on_submit_application(callback: CallbackQuery, button: Button, dialog_
 application_dialog = Dialog(
     # 1) ФИО
     Window(
-        Const("1️⃣ <b>Укажи свое ФИО</b> (пример: Иванов Иван Иванович):"),
+        Const(f"{num_emoji(1)} <b>Укажи свое ФИО</b> (пример: Иванов Иван Иванович):"),
         TextInput(
             id="full_name_input",
             on_success=on_full_name_input,
@@ -320,7 +321,7 @@ application_dialog = Dialog(
     
     # 2) Почта st
     Window(
-        Const("2️⃣ <b>Укажи свою почту st целиком</b> (например: st123456@student.spbu.ru):"),
+        Const(f"{num_emoji(2)} <b>Укажи свою почту st целиком</b> (например: st123456@student.spbu.ru):"),
         TextInput(
             id="email_st_input",
             on_success=on_email_st_input,
@@ -332,7 +333,7 @@ application_dialog = Dialog(
     
     # 3) Телефон
     Window(
-        Const("3️⃣ <b>Укажи свой номер телефона:</b>"),
+        Const(f"{num_emoji(3)} <b>Укажи свой номер телефона:</b>"),
         TextInput(
             id="phone_input",
             on_success=on_phone_input,
@@ -348,7 +349,7 @@ application_dialog = Dialog(
     
     # 4) Факультет / направление
     Window(
-        Const("4️⃣ <b>С какого ты факультета/направления?</b>\n(пример: Менеджмент, Международный менеджмент):"),
+        Const(f"{num_emoji(4)} <b>С какого ты факультета/направления?</b>\n(пример: Менеджмент, Международный менеджмент):"),
         TextInput(
             id="faculty_input",
             on_success=on_faculty_input,
@@ -359,7 +360,7 @@ application_dialog = Dialog(
     
     # 5) Курс обучения
     Window(
-        Const("5️⃣ <b>На каком курсе ты обучаешься?</b>"),
+        Const(f"{num_emoji(5)} <b>На каком курсе ты обучаешься?</b>"),
         Column(
             Radio(
                 Format("🔘 {item[text]}"),
@@ -378,7 +379,7 @@ application_dialog = Dialog(
     # 6) Количество дней
     Window(
         Const(
-            "6️⃣ <b>Сколько дней ты готов(-а) помогать на Конференции?</b>\n\n"
+            f"{num_emoji(6)} <b>Сколько дней ты готов(-а) помогать на Конференции?</b>\n\n"
             "Напоминаем, что на площадке нужно будет присутствовать минимум два дня с 9.00 до 21.00."
         ),
         Column(
@@ -398,7 +399,7 @@ application_dialog = Dialog(
     
     # 7) 0-й день (21 октября)
     Window(
-        Const("7️⃣ <b>Можешь ли ты помогать в 0 день Конференции (21 октября)?</b>"),
+        Const(f"{num_emoji(7)} <b>Можешь ли ты помогать в 0 день Конференции (21 октября)?</b>"),
         Column(
             Radio(
                 Format("🔘 {item[text]}"),
@@ -416,7 +417,7 @@ application_dialog = Dialog(
     
     # 8) Роль на площадке
     Window(
-        Const("8️⃣ <b>Какую роль ты хочешь выполнять на площадке: волонтер общего функционала, фотограф, видеограф?</b>"),
+        Const(f"{num_emoji(8)} <b>Какую роль ты хочешь выполнять на площадке: волонтер общего функционала, фотограф, видеограф?</b>"),
         Column(
             Radio(
                 Format("🔘 {item[text]}"),
@@ -434,7 +435,7 @@ application_dialog = Dialog(
     
     # 9) Мотивация
     Window(
-        Const("9️⃣ <b>Почему именно ты - идеальный волонтер Конференции?</b>"),
+        Const(f"{num_emoji(9)} <b>Почему именно ты - идеальный волонтер Конференции?</b>"),
         TextInput(
             id="motivation_input",
             on_success=on_motivation_input,
@@ -445,7 +446,7 @@ application_dialog = Dialog(
     
     # 10) Опыт волонтерства
     Window(
-        Const("🔟 <b>Есть ли у тебя опыт волонтерства?</b> Если да, опиши его подробно, пожалуйста:"),
+        Const(f"{num_emoji(10)} <b>Есть ли у тебя опыт волонтерства?</b> Если да, опиши его подробно, пожалуйста:"),
         TextInput(
             id="experience_input",
             on_success=on_experience_input,

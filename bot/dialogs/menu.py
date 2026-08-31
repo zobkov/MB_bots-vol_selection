@@ -5,6 +5,7 @@ from aiogram_dialog.widgets.text import Const, Format
 from bot.states import MenuSG, ApplicationSG
 from database.db import Database
 from database.repositories import UserRepository
+from utils.emojis import emoji
 
 
 async def get_menu_data(dialog_manager: DialogManager, **kwargs):
@@ -28,8 +29,8 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
     status_text = "<b>Заявка подана</b>" if is_submitted else "<b>Заявка не подана</b>"
     
     menu_text = (
-        '<tg-emoji emoji-id="5255880273299545143">🌍</tg-emoji> <b>Личный кабинет кандидата в команду волонтеров МБ</b>\n\n'
-        '<tg-emoji emoji-id="5255788322344708046">➡️</tg-emoji> Сбор заявок открыт до <b>21 сентября 23:59</b>\n\n'
+        f'{emoji("earth")} <b>Личный кабинет кандидата в команду волонтеров МБ</b>\n\n'
+        f'{emoji("arrow_right")} Сбор заявок открыт до <b>21 сентября 23:59</b>\n\n'
         f'📝 Статус заявки: {status_text}'
     )
     

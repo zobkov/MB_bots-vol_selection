@@ -3,13 +3,14 @@ from aiogram_dialog.widgets.kbd import Start
 from aiogram_dialog.widgets.text import Const
 
 from bot.states import StartSG, ApplicationSG
+from utils.emojis import emoji
 
 
 start_dialog = Dialog(
     Window(
         Const(
-            'Привет! Это бот для отбора экипажа волонтеров на Конференцию «Менеджмент Будущего» 2026 <tg-emoji emoji-id="5255880273299545143">🌍</tg-emoji>\n\n'
-            'Чтобы начать заполнение анкеты нажми «старт» <tg-emoji emoji-id="5256101678863654703">⬇️</tg-emoji>'
+            f'Привет! Это бот для отбора экипажа волонтеров на Конференцию «Менеджмент Будущего» 2026 {emoji("earth")}\n\n'
+            f'Чтобы начать заполнение анкеты нажми «старт» {emoji("arrow_down")}'
         ),
         Start(
             Const("🚀 Старт"),
@@ -19,4 +20,5 @@ start_dialog = Dialog(
         state=StartSG.welcome,
     ),
 )
+
 
