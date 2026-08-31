@@ -10,6 +10,7 @@ from aiogram_dialog.widgets.input import TextInput, MessageInput
 from bot.states import ApplicationSG, StartSG
 from database.repositories import UserRepository, ApplicationRepository
 from database.db import Database
+from utils.logging_config import log_user_action
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +291,10 @@ async def on_submit_application(callback: CallbackQuery, button: Button, dialog_
         
         await app_repo.create_application(db_user.id, application_data, user_telegram_data)
         await user_repo.update_status(user.id, "submitted")
+        
+        username = user.username or f"{user.first_name or ''} {user.last_name or ''}".strip()
+        logger.info(f"✅ Пользователь {user.id} (@{user.username}) успешно заполнил и отправил анкету: {data.get('full_name')}")
+        log_user_action(user.id, username, "APPLICATION_SUBMITTED", f"ФИО: {data.get('full_name')}, Email: {data.get('email_st')}")
     finally:
         await session.close()
     
