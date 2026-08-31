@@ -1,39 +1,46 @@
-# Telegram Bot для отбора волонтеров МБ 2025
+# Telegram Bot для отбора волонтеров МБ 2026
 
-Бот для проведения отбора волонтеров с использованием aiogram 3.x и aiogram-dialog.
+Бот для проведения отбора волонтеров Конференции «Менеджмент Будущего» с использованием aiogram 3.x и aiogram-dialog.
 
 ## Технологический стек
 
+- **Python 3.11+**
+- **Poetry** - управление зависимостями и виртуальным окружением
 - **aiogram 3.x** - основной фреймворк для Telegram бота
-- **aiogram-dialog** - система диалогов для удобного построения интерфейса
+- **aiogram-dialog** - система диалогов для интерфейса
 - **PostgreSQL** - основная база данных
 - **Redis** - хранилище состояний FSM
-- **SQLAlchemy** - ORM для работы с базой данных
-- **Alembic** - система миграций
+- **SQLAlchemy 2.0** (asyncio) - ORM для работы с базой данных
+- **Google Sheets API (gspread)** - выгрузка анкет кандидатов
 
 ## Структура проекта
 
 ```
-vol_selection_MB_bot/
+MB_bots-vol_selection/
 ├── config/
 │   ├── config.py              # Конфигурация приложения
 │   ├── selection_config.json  # Настройки этапов отбора
 │   └── google_credentials.json.example
 ├── bot/
 │   ├── dialogs/              # Диалоги бота
-│   │   ├── start.py         # Стартовый диалог
-│   │   ├── menu.py          # Главное меню
-│   │   ├── application.py   # Анкета
-│   │   └── departments.py   # Выбор отделов
-│   ├── states/              # Состояния FSM
+│   │   ├── start.py         # Стартовое окно
+│   │   └── application.py   # Анкета отбора (10 вопросов + обзор)
+│   ├── states/              # Состояния FSM (aiogram_dialog)
+│   ├── keyboards/           # Командное меню бота
 │   └── handlers.py          # Обработчики команд
 ├── database/
-│   ├── models.py            # Модели базы данных
-│   ├── db.py               # Подключение к БД
-│   └── repositories.py     # Репозитории для работы с данными
-├── alembic/                # Миграции
+│   ├── models.py            # Модели базы данных (User, Application)
+│   ├── db.py               # Подключение к БД и создание таблиц
+│   └── repositories.py     # Репозитории (UserRepository, ApplicationRepository)
+├── utils/
+│   ├── google_services.py   # Интеграция с Google Sheets
+│   └── logging_config.py    # Настройка логирования
+├── archive/
+│   └── 2025/                # Архив кампании 2025 года
+├── pyproject.toml           # Конфигурация Poetry и зависимости
+├── poetry.lock              # Зафиксированные версии пакетов
 ├── main.py                 # Точка входа
-└── requirements.txt
+└── start.sh                # Скрипт быстрого запуска
 ```
 
 ## Установка и запуск
@@ -42,13 +49,13 @@ vol_selection_MB_bot/
 
 ```bash
 git clone <repository-url>
-cd vol_selection_MB_bot
+cd MB_bots-vol_selection
 ```
 
-### 2. Установка зависимостей
+### 2. Установка зависимостей через Poetry
 
 ```bash
-pip install -r requirements.txt
+poetry install
 ```
 
 ### 3. Настройка переменных окружения
@@ -66,68 +73,64 @@ cp .env.example .env
 BOT_TOKEN=your_bot_token_here
 
 # Database PostgreSQL
-DB_USER=postgres
-DB_PASS=your_password
-DB_NAME=vol_bot
+DB_USER=vol_selection_user
+DB_PASS=vol_selection_pass
+DB_NAME=vol_selection_db
 DB_HOST=localhost
 DB_PORT=5432
 
-# Redis (password опционален - можно оставить пустым)
+# Redis
 REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_PASSWORD=
 
-# Google (опционально, для будущего экспорта в Google Sheets)
+# Google Sheets (опционально)
 GOOGLE_CREDENTIALS_PATH=config/google_credentials.json
 GOOGLE_SPREADSHEET_ID=your_spreadsheet_id
-GOOGLE_DRIVE_FOLDER_ID=your_folder_id
-GOOGLE_ENABLE_DRIVE=false
 ```
 
-### 4. Настройка базы данных
+### 4. Настройка базы данных и Redis
 
-Создайте базу данных PostgreSQL:
-
-```sql
-CREATE DATABASE vol_bot;
-```
-
-Примените миграции:
+Запустите PostgreSQL и Redis (например, через Docker):
 
 ```bash
-alembic upgrade head
+# PostgreSQL
+docker run -d --name vol_selection_postgres -e POSTGRES_USER=vol_selection_user -e POSTGRES_PASSWORD=vol_selection_pass -e POSTGRES_DB=vol_selection_db -p 5432:5432 postgres:15
+
+# Redis
+docker run -d --name vol_selection_redis -p 6379:6379 redis:7
 ```
 
-### 5. Настройка Redis
-
-Установите и запустите Redis:
+### 5. Запуск бота
 
 ```bash
-# macOS
-brew install redis
-brew services start redis
-
-# Ubuntu/Debian
-sudo apt-get install redis-server
-sudo systemctl start redis-server
-```
-
-### 6. Запуск бота
-
-```bash
-python main.py
+poetry run python main.py
+# или
+./start.sh
 ```
 
 ## Функциональность
 
 ### Команды бота
 
-- `/start` - запуск бота, переход к стартовому диалогу
-- `/menu` - переход в главное меню
+- `/start` - главное приветствие и переход к заполнению анкеты
+- `/apply` - прямой переход к первому вопросу анкеты
 
-### Диалоги
+### Анкета отбора (10 вопросов)
 
-1. **Стартовый диалог** - приветствие с изображением и кнопкой перехода в меню
+1. **ФИО** (текст, проверка на ввод имени и фамилии)
+2. **Почта st** (текст, корпоративный email СПбГУ)
+3. **Номер телефона** (текст или отправка контакта кнопкой)
+4. **Факультет / направление** (текст)
+5. **Курс** (кнопки 1-4 бакалавриат, 1-2 магистратура, Другое)
+6. **Готовность по дням** (кнопки 2 дня / 3 дня)
+7. **0-й день (21 октября)** (кнопки Да / Нет)
+8. **Желаемая роль** (кнопки: общий функционал, фотограф, видеограф)
+9. **Мотивация** (текст)
+10. **Опыт волонтерства** (текст)
+11. **Экран проверки и точечного редактирования**
+12. **Сохранение в PostgreSQL и выгрузка в Google Sheets**
+
 2. **Главное меню** - информация о текущем этапе, статус заявки, кнопки для заполнения анкеты и поддержки
 3. **Анкета (1-й этап)** - пошаговое заполнение анкеты:
    - ФИО

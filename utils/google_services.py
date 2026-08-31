@@ -64,46 +64,39 @@ class GoogleSheetsService:
             logger.info(f"📋 Открываем таблицу: {self.spreadsheet_id}")
             spreadsheet = self.gc.open_by_key(self.spreadsheet_id)
             
-            # Получаем лист "TEST" для тестирования (или создаем его)
-            worksheet_name = "APPLICATIONS_NEW"
+            worksheet_name = "VOLUNTEERS_2026"
+            headers = [
+                'Timestamp',
+                'User ID',
+                'Username',
+                '1. ФИО',
+                '2. Почта st',
+                '3. Телефон',
+                '4. Факультет/направление',
+                '5. Курс',
+                '6. Количество дней',
+                '7. 0-й день (21 октября)',
+                '8. Роль',
+                '9. Мотивация',
+                '10. Опыт волонтерства',
+                'Created At'
+            ]
+            
             try:
-                logger.info(f"🔍 Ищем тестовый лист: {worksheet_name}")
+                logger.info(f"🔍 Ищем лист: {worksheet_name}")
                 worksheet = spreadsheet.worksheet(worksheet_name)
-                logger.info(f"✅ Тестовый лист {worksheet_name} найден")
+                logger.info(f"✅ Лист {worksheet_name} найден")
             except gspread.WorksheetNotFound:
-                logger.info(f"📄 Тестовый лист {worksheet_name} не найден, создаем новый...")
-                # Создаем лист если его нет
-                worksheet = spreadsheet.add_worksheet(title=worksheet_name, rows=1000, cols=25)
-                
-            # Определяем формат данных в зависимости от листа
-            if worksheet_name == "TEST":
-                # Новый формат с полными заголовками для тестового листа
-                headers = [
-                    'Timestamp', 'User ID', 'Username', 'Full Name', 'First Name', 'Last Name', 'Middle Name',
-                    'Course', 'Is From VSM', 'Is From SPBU', 'University', 'Dormitory', 'Email', 'Phone', 
-                    'Personal Qualities', 'Motivation',
-                    'Logistics Rating', 'Marketing Rating', 'PR Rating', 'Program Rating', 'Partners Rating',
-                    'Created At', 'Updated At'
-                ]
-            else:
-                # Старый формат для совместимости с существующим листом APPLICATION
-                headers = [
-                    'Timestamp', 'User ID', 'Username', 'Full Name', 'First Name', 'Last Name', 'Middle Name',
-                    'Course', 'Dormitory', 'Email', 'Phone', 'Personal Qualities', 'Motivation',
-                    'Logistics Rating', 'Marketing Rating', 'PR Rating', 'Program Rating', 'Partners Rating',
-                    'Created At', 'Updated At',
-                    'Is From VSM', 'Is From SPBU', 'University'  # Новые поля в конце
-                ]
-                #worksheet.append_row(headers)
-                logger.info(f"✅ Тестовый лист {worksheet_name} создан с заголовками")
+                logger.info(f"📄 Лист {worksheet_name} не найден, создаем новый...")
+                worksheet = spreadsheet.add_worksheet(title=worksheet_name, rows=1000, cols=20)
+                worksheet.append_row(headers)
+                logger.info(f"✅ Лист {worksheet_name} создан с заголовками")
             
             # Проверяем, есть ли уже запись для этого пользователя
             try:
-                # Получаем все записи
                 all_records = worksheet.get_all_records()
                 user_id = str(application_data.get('telegram_id'))
                 
-                # Ищем существующую запись
                 existing_row = None
                 for i, record in enumerate(all_records, start=2):  # start=2 because row 1 is headers
                     if str(record.get('User ID')) == user_id:
@@ -124,88 +117,35 @@ class GoogleSheetsService:
             # Подготавливаем данные для записи
             logger.info(f"📝 Подготавливаем данные для записи...")
             
-            # Преобразуем boolean значения в читаемый формат
-            vsm_text = "Да" if application_data.get('is_from_vsm') else "Нет" if application_data.get('is_from_vsm') is not None else ""
-            spbu_text = "Да" if application_data.get('is_from_spbu') else "Нет" if application_data.get('is_from_spbu') is not None else ""
-            
-            # Для поля общежития: показываем только если значение есть (не None)
-            dormitory_value = application_data.get('dormitory')
-            if dormitory_value is True:
-                dormitory_text = "Да"
-            elif dormitory_value is False:
-                dormitory_text = "Нет"
-            else:
-                dormitory_text = "Не применимо"  # Для студентов не из ВШМ
-            
-            # Подготавливаем данные в зависимости от формата листа
-            if worksheet_name == "TEST":
-                # Новый формат для TEST листа
-                row_data = [
-                    datetime.now().isoformat(),  # Timestamp
-                    application_data.get('telegram_id', ''),  # User ID
-                    application_data.get('telegram_username', ''),  # Username
-                    application_data.get('full_name', ''),  # Full Name
-                    application_data.get('first_name', ''),  # First Name
-                    application_data.get('last_name', ''),  # Last Name
-                    application_data.get('middle_name', ''),  # Middle Name
-                    application_data.get('course', ''),  # Course
-                    vsm_text,  # Is From VSM
-                    spbu_text,  # Is From SPBU
-                    application_data.get('university', ''),  # University
-                    dormitory_text,  # Dormitory
-                    application_data.get('email', ''),  # Email
-                    application_data.get('phone', ''),  # Phone
-                    application_data.get('personal_qualities', ''),  # Personal Qualities
-                    application_data.get('motivation', ''),  # Motivation
-                    application_data.get('logistics_rating', ''),  # Logistics Rating
-                    application_data.get('marketing_rating', ''),  # Marketing Rating
-                    application_data.get('pr_rating', ''),  # PR Rating
-                    application_data.get('program_rating', ''),  # Program Rating
-                    application_data.get('partners_rating', ''),  # Partners Rating
-                    application_data.get('created_at', ''),  # Created At
-                    application_data.get('updated_at', '')  # Updated At
-                ]
-            else:
-                # Старый формат для APPLICATION листа (совместимость)
-                row_data = [
-                    datetime.now().isoformat(),  # Timestamp
-                    application_data.get('telegram_id', ''),  # User ID
-                    application_data.get('telegram_username', ''),  # Username
-                    application_data.get('full_name', ''),  # Full Name
-                    application_data.get('first_name', ''),  # First Name
-                    application_data.get('last_name', ''),  # Last Name
-                    application_data.get('middle_name', ''),  # Middle Name
-                    application_data.get('course', ''),  # Course
-                    dormitory_text,  # Dormitory (старая позиция)
-                    application_data.get('email', ''),  # Email
-                    application_data.get('phone', ''),  # Phone
-                    application_data.get('personal_qualities', ''),  # Personal Qualities
-                    application_data.get('motivation', ''),  # Motivation
-                    application_data.get('logistics_rating', ''),  # Logistics Rating
-                    application_data.get('marketing_rating', ''),  # Marketing Rating
-                    application_data.get('pr_rating', ''),  # PR Rating
-                    application_data.get('program_rating', ''),  # Program Rating
-                    application_data.get('partners_rating', ''),  # Partners Rating
-                    application_data.get('created_at', ''),  # Created At
-                    application_data.get('updated_at', ''),  # Updated At
-                    vsm_text,  # Is From VSM (новые поля в конце)
-                    spbu_text,  # Is From SPBU
-                    application_data.get('university', '')  # University
-                ]
+            row_data = [
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                str(application_data.get('telegram_id', '')),
+                str(application_data.get('telegram_username', '')),
+                str(application_data.get('full_name', '')),
+                str(application_data.get('email_st', '')),
+                str(application_data.get('phone', '')),
+                str(application_data.get('faculty', '')),
+                str(application_data.get('course', '')),
+                str(application_data.get('days_count', '')),
+                str(application_data.get('day_zero_available', '')),
+                str(application_data.get('preferred_role', '')),
+                str(application_data.get('motivation', '')),
+                str(application_data.get('volunteer_experience', '')),
+                str(application_data.get('created_at', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))),
+            ]
             
             logger.info(f"📤 Отправляем данные в Google Sheets...")
             
             if update_method == "update" and existing_row:
-                # Обновляем существующую строку
-                worksheet.update(f'A{existing_row}:W{existing_row}', [row_data])
+                worksheet.update(f'A{existing_row}:N{existing_row}', [row_data])
                 logger.info(f"🔄 Заявка пользователя {application_data.get('telegram_id')} обновлена в Google Sheets")
             else:
-                # Добавляем новую строку
                 worksheet.append_row(row_data)
                 logger.info(f"➕ Заявка пользователя {application_data.get('telegram_id')} добавлена в Google Sheets")
             
             logger.info(f"🎉 Заявка пользователя {application_data.get('telegram_id')} успешно сохранена в Google Sheets")
             return True
+
             
         except Exception as e:
             error_msg = str(e)

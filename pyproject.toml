@@ -1,0 +1,36 @@
+[project]
+name = "mb-vol-selection-bot"
+version = "0.1.0"
+description = "Telegram Bot для отбора экипажа волонтеров Конференции «Менеджмент Будущего» 2026"
+authors = [
+    {name = "Artyom Zobkov"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiogram (>=3.17.0,<4.0.0)",
+    "aiogram-dialog (>=2.4.0,<3.0.0)",
+    "sqlalchemy (>=2.0.38,<3.0.0)",
+    "asyncpg (>=0.30.0,<0.31.0)",
+    "redis (>=5.0.0,<6.0.0)",
+    "environs (>=11.0.0,<15.0.0)",
+    "gspread (>=6.0.0,<7.0.0)",
+    "google-auth (>=2.30.0,<3.0.0)",
+    "google-api-python-client (>=2.150.0,<3.0.0)",
+    "alembic (>=1.14.0,<2.0.0)",
+    "aiofiles (>=23.2.0,<25.0.0)",
+    "apscheduler (>=3.10.0,<4.0.0)",
+    "greenlet (>=3.5.5,<4.0.0)",
+]
+
+[tool.poetry]
+packages = [
+    { include = "bot" },
+    { include = "config" },
+    { include = "database" },
+    { include = "utils" }
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

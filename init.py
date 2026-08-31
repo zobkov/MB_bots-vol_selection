@@ -9,7 +9,7 @@ import shutil
 from pathlib import Path
 
 def main():
-    print("🤖 Инициализация проекта бота для отбора волонтеров МБ 2025\n")
+    print("🤖 Инициализация проекта бота для отбора волонтеров МБ 2026\n")
     
     # Проверяем существование .env файла
     if not os.path.exists('.env'):
@@ -34,9 +34,10 @@ def main():
     
     print("\n🎯 Что нужно сделать дальше:")
     print("1. Заполните переменные в файле .env")
-    print("2. Настройте PostgreSQL и Redis")
-    print("3. При необходимости настройте Google Sheets (опционально)")
-    print("4. Запустите: ./start.sh или python main.py")
+    print("2. Установите зависимости: poetry install")
+    print("3. Настройте PostgreSQL и Redis")
+    print("4. При необходимости настройте Google Sheets (опционально)")
+    print("5. Запустите: ./start.sh или poetry run python main.py")
     print("\n📖 Подробная инструкция в README.md")
 
 if __name__ == "__main__":

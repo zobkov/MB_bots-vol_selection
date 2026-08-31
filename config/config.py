@@ -39,9 +39,9 @@ class GoogleConfig:
 @dataclass
 class SelectionConfig:
     stages: Dict[str, Any]
-    departments: Dict[str, Any]
-    how_found_options: list[str]
     support_contacts: Dict[str, str]
+    departments: Dict[str, Any] = field(default_factory=dict)
+    how_found_options: list[str] = field(default_factory=list)
 
 @dataclass
 class Config:
@@ -101,11 +101,12 @@ def load_config(path: str = None) -> Config:
         logger.warning("Некоторые переменные Google не заданы, Google сервисы отключены")
     
     selection_config = SelectionConfig(
-        stages=json_config["selection_stages"],
-        departments=json_config["departments"],
-        how_found_options=json_config["how_found_options"],
-        support_contacts=json_config["support_contacts"]
+        stages=json_config.get("selection_stages", {}),
+        support_contacts=json_config.get("support_contacts", {}),
+        departments=json_config.get("departments", {}),
+        how_found_options=json_config.get("how_found_options", [])
     )
+
     
     log_level = env.str("LOG_LEVEL", "INFO")
     
