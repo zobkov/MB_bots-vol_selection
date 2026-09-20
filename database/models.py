@@ -21,6 +21,7 @@ class User(Base):
 
     # Связь с заявками
     applications: Mapped[list["Application"]] = relationship("Application", back_populates="user", cascade="all, delete-orphan")
+    stage2_applications: Mapped[list["Stage2Application"]] = relationship("Stage2Application", back_populates="user", cascade="all, delete-orphan")
 
 
 class Application(Base):
@@ -55,4 +56,49 @@ class Application(Base):
 
     # Связь с пользователем
     user: Mapped["User"] = relationship("User", back_populates="applications")
+
+
+class Stage2Application(Base):
+    __tablename__ = 'stage2_applications'
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('users.id'), unique=True, nullable=False)
+    role_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'general', 'media'
+
+    # Вопросы общего функционала:
+    # 1. Что ты знаешь о Конференции «Менеджмент Будущего»?
+    q1_about_mb: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 2. Почему ты хочешь стать волонтером именно на МБ?
+    q2_motivation: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 3. Что делает мероприятие действительно хорошо организованным?
+    q3_well_organized: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Видеоинтервью общего функционала (file_id кружочков в Telegram):
+    # 1. Заметил проблему и решил без поручения
+    vq1_file_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # 2. Пожертвовал личным комфортом ради цели
+    vq2_file_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # 3. Приоритезация (руководитель / участник / спикер)
+    vq3_file_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # 4. Руководитель принял неправильное решение
+    vq4_file_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # 5. Работа с человеком, который не нравился
+    vq5_file_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # Вопросы фотографов / видеографов:
+    # 1. Наличие своего оборудования
+    media_has_equipment: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    # 2. Опыт съемки профессиональных мероприятий
+    media_experience: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 3. Ссылка на портфолио
+    media_portfolio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Статус проверки администратором
+    reviewed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # Связь с пользователем
+    user: Mapped["User"] = relationship("User", back_populates="stage2_applications")
 

@@ -3,7 +3,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 from aiogram_dialog import DialogManager, StartMode
 
-from bot.states import StartSG, ApplicationSG, MenuSG, ViewUserSG
+from bot.states import StartSG, ApplicationSG, MenuSG, ViewUserSG, Stage2SG, Stage2ReviewSG
 from database.repositories import UserRepository
 from database.db import Database
 from utils.logging_config import log_user_action
@@ -21,11 +21,16 @@ async def cmd_start_or_menu(message: Message, dialog_manager: DialogManager):
         session = await db.get_session()
         try:
             user_repo = UserRepository(session)
+            from database.repositories import ApplicationRepository
+            app_repo = ApplicationRepository(session)
             db_user = await user_repo.get_or_create_user(
                 telegram_id=message.from_user.id,
                 telegram_username=message.from_user.username
             )
-            is_submitted = (db_user.status == "submitted")
+            latest_app = await app_repo.get_latest_application_by_user_id(db_user.id)
+            is_submitted = (db_user.status == "submitted") or (latest_app is not None)
+            if latest_app and db_user.status != "submitted":
+                await user_repo.update_status(db_user.telegram_id, "submitted")
         finally:
             await session.close()
     
@@ -159,5 +164,41 @@ async def cmd_view_user(message: Message, command: CommandObject, dialog_manager
         )
     finally:
         await session.close()
+
+
+@router.message(Command("stage2"))
+async def cmd_stage2(message: Message, dialog_manager: DialogManager):
+    """Прямой запуск 2-го этапа по команде /stage2"""
+    db: Database = dialog_manager.middleware_data.get("db")
+    if db:
+        session = await db.get_session()
+        try:
+            user_repo = UserRepository(session)
+            await user_repo.get_or_create_user(
+                telegram_id=message.from_user.id,
+                telegram_username=message.from_user.username
+            )
+        finally:
+            await session.close()
+
+    await dialog_manager.start(Stage2SG.MAIN, mode=StartMode.RESET_STACK)
+
+
+@router.message(Command("stage2_review", "vol_review"))
+async def cmd_stage2_review(message: Message, dialog_manager: DialogManager):
+    """
+    Команда для администраторов:
+    /stage2_review или /vol_review — открывает постраничный просмотр заявок 2-го этапа.
+    """
+    username = message.from_user.username or f"{message.from_user.first_name or ''}".strip()
+    log_user_action(
+        message.from_user.id,
+        username,
+        "ADMIN_STAGE2_REVIEW",
+        f"Admin opened Stage 2 review"
+    )
+
+    await dialog_manager.start(Stage2ReviewSG.PAGE_SELECT, mode=StartMode.RESET_STACK)
+
 
 

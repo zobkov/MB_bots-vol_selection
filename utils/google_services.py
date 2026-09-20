@@ -178,6 +178,76 @@ class GoogleSheetsService:
                 
             return False
 
+    async def sync_stage2_applications(self, stage2_items: list[Dict[str, Any]]) -> bool:
+        """
+        Синхронизирует список всех заявок 2-го этапа с Google Sheets
+        """
+        try:
+            logger.info("📊 Синхронизация заявок 2-го этапа с Google Sheets...")
+            spreadsheet = self.gc.open_by_key(self.spreadsheet_id)
+            worksheet_name = "VOLUNTEERS_STAGE_2"
+            headers = [
+                'Telegram ID',
+                'Username',
+                'ФИО',
+                'Телефон',
+                'Почта st',
+                'Факультет / Курс',
+                'Направление (Роль)',
+                '1. О Конференции МБ',
+                '2. Мотивация',
+                '3. Организация',
+                'Видео 1 (Проблема)',
+                'Видео 2 (Комфорт)',
+                'Видео 3 (Приоритеты)',
+                'Видео 4 (Руководитель)',
+                'Видео 5 (Сложный человек)',
+                'Медиа: Оборудование',
+                'Медиа: Опыт',
+                'Медиа: Портфолио',
+                'Проверено (Reviewed)',
+                'Время сдачи'
+            ]
+
+            try:
+                worksheet = spreadsheet.worksheet(worksheet_name)
+            except gspread.WorksheetNotFound:
+                worksheet = spreadsheet.add_worksheet(title=worksheet_name, rows=1000, cols=25)
+                worksheet.append_row(headers)
+
+            rows_to_write = [headers]
+            for item in stage2_items:
+                rows_to_write.append([
+                    str(item.get('telegram_id', '')),
+                    str(item.get('telegram_username', '')),
+                    str(item.get('full_name', '')),
+                    str(item.get('phone', '')),
+                    str(item.get('email_st', '')),
+                    str(item.get('faculty_course', '')),
+                    str(item.get('preferred_role', '')),
+                    str(item.get('q1_about_mb', '')),
+                    str(item.get('q2_motivation', '')),
+                    str(item.get('q3_well_organized', '')),
+                    "✅" if item.get('vq1_file_id') else "—",
+                    "✅" if item.get('vq2_file_id') else "—",
+                    "✅" if item.get('vq3_file_id') else "—",
+                    "✅" if item.get('vq4_file_id') else "—",
+                    "✅" if item.get('vq5_file_id') else "—",
+                    "Да" if item.get('media_has_equipment') is True else ("Нет" if item.get('media_has_equipment') is False else "—"),
+                    str(item.get('media_experience', '')),
+                    str(item.get('media_portfolio', '')),
+                    "Да" if item.get('reviewed') else "Нет",
+                    str(item.get('created_at', ''))
+                ])
+
+            worksheet.clear()
+            worksheet.update('A1', rows_to_write)
+            logger.info(f"✅ Успешно синхронизировано {len(stage2_items)} заявок 2-го этапа в Google Sheets")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Ошибка синхронизации 2-го этапа в Google Sheets: {e}")
+            return False
+
 
 def setup_google_sheets_service(config) -> Optional[GoogleSheetsService]:
     """

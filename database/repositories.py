@@ -1,6 +1,6 @@
-from sqlalchemy import select, update, func
+from sqlalchemy import select, update, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from database.models import User, Application
+from database.models import User, Application, Stage2Application
 from typing import Optional, List, Dict, Any
 from utils.logging_config import log_db_operation, log_error
 from utils.google_services import GoogleSheetsService
@@ -191,4 +191,92 @@ class ApplicationRepository:
             select(Application).where(Application.user_id == user_id).order_by(Application.created_at.desc())
         )
         return result.scalars().first()
+
+
+class Stage2Repository:
+    def __init__(self, session: AsyncSession, google_sheets_service: Optional[GoogleSheetsService] = None):
+        self.session = session
+        self.google_sheets_service = google_sheets_service
+
+    async def get_by_user_id(self, user_id: int) -> Optional[Stage2Application]:
+        """Получить заявку 2-го этапа по user_id"""
+        result = await self.session.execute(
+            select(Stage2Application).where(Stage2Application.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def upsert_application(self, user_id: int, data: Dict[str, Any]) -> Stage2Application:
+        """Создать или обновить заявку 2-го этапа"""
+        try:
+            existing = await self.get_by_user_id(user_id)
+            if existing is None:
+                app = Stage2Application(
+                    user_id=user_id,
+                    role_type=data.get('role_type', 'general'),
+                    q1_about_mb=data.get('q1_about_mb'),
+                    q2_motivation=data.get('q2_motivation'),
+                    q3_well_organized=data.get('q3_well_organized'),
+                    vq1_file_id=data.get('vq1_file_id'),
+                    vq2_file_id=data.get('vq2_file_id'),
+                    vq3_file_id=data.get('vq3_file_id'),
+                    vq4_file_id=data.get('vq4_file_id'),
+                    vq5_file_id=data.get('vq5_file_id'),
+                    media_has_equipment=data.get('media_has_equipment'),
+                    media_experience=data.get('media_experience'),
+                    media_portfolio=data.get('media_portfolio'),
+                    reviewed=data.get('reviewed', False)
+                )
+                self.session.add(app)
+                await self.session.commit()
+                await self.session.refresh(app)
+                log_db_operation("CREATE", "stage2_applications", f"Stage 2 app created for user_id={user_id}")
+                return app
+            else:
+                for key, val in data.items():
+                    if hasattr(existing, key):
+                        setattr(existing, key, val)
+                await self.session.commit()
+                await self.session.refresh(existing)
+                log_db_operation("UPDATE", "stage2_applications", f"Stage 2 app updated for user_id={user_id}")
+                return existing
+        except Exception as e:
+            log_error(e, f"Ошибка при сохранении заявки 2-го этапа для user_id={user_id}")
+            raise
+
+    async def count_all(self) -> int:
+        """Подсчитать общее количество заявок 2-го этапа"""
+        result = await self.session.execute(select(func.count(Stage2Application.id)))
+        return result.scalar_one() or 0
+
+    async def list_page(self, page: int, limit: int = 10) -> List[Stage2Application]:
+        """Получить страницу заявок 2-го этапа"""
+        offset = max(0, page * limit)
+        result = await self.session.execute(
+            select(Stage2Application)
+            .order_by(Stage2Application.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def set_reviewed(self, user_id: int, reviewed: bool) -> bool:
+        """Переключить флаг reviewed для заявки"""
+        try:
+            result = await self.session.execute(
+                update(Stage2Application)
+                .where(Stage2Application.user_id == user_id)
+                .values(reviewed=reviewed)
+            )
+            await self.session.commit()
+            return result.rowcount > 0
+        except Exception as e:
+            log_error(e, f"Ошибка при обновлении статуса reviewed для user_id={user_id}")
+            raise
+
+    async def list_all(self) -> List[Stage2Application]:
+        """Получить все заявки 2-го этапа"""
+        result = await self.session.execute(
+            select(Stage2Application).order_by(Stage2Application.created_at.asc())
+        )
+        return list(result.scalars().all())
 

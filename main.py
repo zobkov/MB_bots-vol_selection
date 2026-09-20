@@ -11,7 +11,14 @@ from config.config import load_config
 from database.db import Database
 from database.repositories import UserRepository
 from bot.handlers import router
-from bot.dialogs import start_dialog, menu_dialog, application_dialog, view_user_dialog
+from bot.dialogs import (
+    start_dialog,
+    menu_dialog,
+    application_dialog,
+    view_user_dialog,
+    stage2_dialog,
+    stage2_review_dialog,
+)
 from bot.middlewares import LoggingMiddleware
 from bot.keyboards.command_menu import set_main_menu
 from utils.logging_config import setup_logging, log_error, log_user_action
@@ -58,9 +65,8 @@ async def main():
         
         # Создаем подключение к базе данных
         db = Database(config)
-        
-        # Настраиваем меню команд
-        await set_main_menu(bot)
+
+        logger.info(f"🔗 Подключение к Postgres установлено: {config.db.host}")
 
         # Создаем таблицы
         await db.create_tables()
@@ -77,6 +83,7 @@ async def main():
         async def config_middleware(handler, event, data):
             data["config"] = config
             data["db"] = db
+            data["bot"] = bot
             data["google_sheets_service"] = google_sheets_service
             return await handler(event, data)
         
@@ -92,6 +99,8 @@ async def main():
         dp.include_router(menu_dialog)
         dp.include_router(application_dialog)
         dp.include_router(view_user_dialog)
+        dp.include_router(stage2_dialog)
+        dp.include_router(stage2_review_dialog)
         
         # Настраиваем диалоги
         setup_dialogs(dp)
