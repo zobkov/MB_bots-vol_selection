@@ -7,7 +7,7 @@ from bot.states import StartSG, ApplicationSG, MenuSG, ViewUserSG, Stage2SG, Sta
 from config.config import Config
 from database.repositories import UserRepository
 from database.db import Database
-from services.stage2_timer import get_stage2_duration_sec, set_stage2_duration_sec, format_duration
+from services.stage2_timer import get_stage2_duration_sec, set_stage2_duration_sec, format_duration, cancel_user_timer
 from utils.logging_config import log_user_action
 
 router = Router()
@@ -23,6 +23,9 @@ def check_is_admin(user_id: int, config: Config | None) -> bool:
 @router.message(Command("start", "menu"))
 async def cmd_start_or_menu(message: Message, dialog_manager: DialogManager):
     """Единый обработчик команд /start и /menu с проверкой статуса заявки"""
+    # Сбрасываем таймер этапа 2 при выходе в меню /start
+    cancel_user_timer(message.from_user.id)
+
     db: Database = dialog_manager.middleware_data.get("db")
     is_submitted = False
     
@@ -52,6 +55,7 @@ async def cmd_start_or_menu(message: Message, dialog_manager: DialogManager):
 @router.message(Command("apply"))
 async def cmd_apply(message: Message, dialog_manager: DialogManager):
     """Прямой запуск анкеты по команде /apply"""
+    cancel_user_timer(message.from_user.id)
     db: Database = dialog_manager.middleware_data.get("db")
     
     if db:

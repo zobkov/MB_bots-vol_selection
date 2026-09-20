@@ -104,13 +104,19 @@ async def on_start_general_no(
 
 
 async def on_stage2_dialog_close(result: Any, manager: DialogManager) -> None:
-    """Cancel timer if user leaves the dialog"""
+    """Cancel timer if user leaves or closes the dialog."""
     try:
-        user_id = manager.event.from_user.id
-        cancel_user_timer(user_id)
-        logger.info("[STAGE2] Timer cancelled on dialog close for user_id=%d", user_id)
-    except Exception:
-        pass
+        user_id = None
+        if manager.event and hasattr(manager.event, "from_user") and manager.event.from_user:
+            user_id = manager.event.from_user.id
+        elif manager.middleware_data.get("event_from_user"):
+            user_id = manager.middleware_data["event_from_user"].id
+
+        if user_id:
+            cancel_user_timer(user_id)
+            logger.info("[STAGE2] Timer cancelled on dialog close for user_id=%d", user_id)
+    except Exception as e:
+        logger.warning("[STAGE2] Failed to cancel timer on dialog close: %s", e)
 
 
 # ============================================================================
