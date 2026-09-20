@@ -278,10 +278,22 @@ async def get_roles_options(dialog_manager: DialogManager, **kwargs):
     }
 
 
+def _truncate_preview(text: str | None, max_len: int = 350) -> str:
+    """Безопасно обрезает длинный текст для экрана подтверждения, чтобы не превысить лимит сообщения Telegram"""
+    if not text:
+        return "—"
+    cleaned = text.strip()
+    if len(cleaned) <= max_len:
+        return cleaned
+    return cleaned[:max_len].rstrip() + " ... <i>(сокращено для предпросмотра)</i>"
+
+
 async def get_overview_data(dialog_manager: DialogManager, **kwargs):
     data = dialog_manager.dialog_data
     
     day_zero_text = data.get('day_zero_display') or ("Да" if data.get('day_zero_available') else "Нет")
+    motivation_preview = _truncate_preview(data.get('motivation'), 350)
+    experience_preview = _truncate_preview(data.get('volunteer_experience'), 350)
     
     overview_text = f"""📋 <b>Проверь свои ответы перед отправкой:</b>
 
@@ -295,10 +307,10 @@ async def get_overview_data(dialog_manager: DialogManager, **kwargs):
 {num_emoji(8)} <b>Желаемая роль:</b> {data.get('preferred_role', '—')}
 
 {num_emoji(9)} <b>Почему ты - идеальный волонтер:</b>
-{data.get('motivation', '—')}
+{motivation_preview}
 
 {num_emoji(10)} <b>Опыт волонтерства:</b>
-{data.get('volunteer_experience', '—')}"""
+{experience_preview}"""
 
     return {"overview_text": overview_text}
 

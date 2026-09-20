@@ -12,6 +12,7 @@ from bot.states import Stage2ReviewSG
 from database.db import Database
 from database.repositories import UserRepository, ApplicationRepository, Stage2Repository
 from utils.google_services import GoogleSheetsService
+from utils.emojis import emoji, num_emoji, combo_emojis
 
 logger = logging.getLogger(__name__)
 
@@ -165,11 +166,11 @@ async def on_to_videos(
 
         sent_ids: list[int] = []
         video_questions = [
-            ("1. Самостоятельное решение проблемы", app.vq1_file_id),
-            ("2. Жертва личным комфортом ради цели", app.vq2_file_id),
-            ("3. Приоритезация (руководитель/участник/спикер)", app.vq3_file_id),
-            ("4. Сомнения в решении руководителя", app.vq4_file_id),
-            ("5. Работа в команде со сложным человеком", app.vq5_file_id),
+            (f"{num_emoji(1, "orange")} Самостоятельное решение проблемы", app.vq1_file_id),
+            (f"{num_emoji(2, "orange")} Жертва личным комфортом ради цели", app.vq2_file_id),
+            (f"{num_emoji(3, "orange")} Приоритезация (руководитель/участник/спикер)", app.vq3_file_id),
+            (f"{num_emoji(4, "orange")} Сомнения в решении руководителя", app.vq4_file_id),
+            (f"{num_emoji(5, "orange")} Работа в команде со сложным человеком", app.vq5_file_id),
         ]
 
         for label, file_id in video_questions:

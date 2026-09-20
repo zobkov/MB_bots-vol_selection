@@ -213,15 +213,19 @@ async def on_view_app_clicked(callback: CallbackQuery, button: Button, dialog_ma
 
 async def on_prev_page_clicked(callback: CallbackQuery, button: Button, dialog_manager: DialogManager):
     """Предыдущая страница анкеты"""
+    await callback.answer()
     current_page = dialog_manager.dialog_data.get("app_page", 0)
     if current_page > 0:
         dialog_manager.dialog_data["app_page"] = current_page - 1
+    await dialog_manager.switch_to(ViewUserSG.app_details)
 
 
 async def on_next_page_clicked(callback: CallbackQuery, button: Button, dialog_manager: DialogManager):
     """Следующая страница анкеты"""
+    await callback.answer()
     current_page = dialog_manager.dialog_data.get("app_page", 0)
     dialog_manager.dialog_data["app_page"] = current_page + 1
+    await dialog_manager.switch_to(ViewUserSG.app_details)
 
 
 # ============================================================================

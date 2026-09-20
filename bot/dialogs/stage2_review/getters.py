@@ -9,40 +9,69 @@ from aiogram_dialog import DialogManager
 from database.db import Database
 from database.repositories import UserRepository, ApplicationRepository, Stage2Repository
 
+from utils.emojis import emoji, num_emoji, combo_emojis
+
 logger = logging.getLogger(__name__)
 
 _PAGE_SIZE = 10
-_TG_LIMIT = 3500
-
-
-def _split_pages(text: str, limit: int = _TG_LIMIT) -> list[str]:
-    """Split text into chunks <= limit chars, breaking at paragraph boundaries."""
-    if len(text) <= limit:
-        return [text]
-    pages: list[str] = []
-    remaining = text
-    while remaining:
-        if len(remaining) <= limit:
-            pages.append(remaining)
-            break
-        split_pos = remaining.rfind("\n\n", 0, limit)
-        if split_pos == -1:
-            split_pos = remaining.rfind("\n", 0, limit)
-        if split_pos == -1:
-            split_pos = limit
-        pages.append(remaining[:split_pos])
-        remaining = remaining[split_pos:].lstrip("\n")
-    return pages
+_TG_LIMIT = 2800
 
 
 def _v(val: str | None) -> str:
-    return val if val else "—"
+    if not val:
+        return "—"
+    return str(val).strip()
 
 
 def _yn(val: bool | None) -> str:
     if val is None:
         return "—"
     return "Да" if val else "Нет"
+
+
+def _build_review_pages(sections: list[str], limit: int = _TG_LIMIT) -> list[str]:
+    """
+    Объединяет логические секции в страницы длиной не более limit символов.
+    Если секция слишком большая, разбивает её по абзацам.
+    """
+    flat_blocks: list[str] = []
+    for sec in sections:
+        sec = sec.strip()
+        if not sec:
+            continue
+        if len(sec) <= limit:
+            flat_blocks.append(sec)
+        else:
+            paragraphs = sec.split("\n\n")
+            cur_p = ""
+            for p in paragraphs:
+                p = p.strip()
+                if not p:
+                    continue
+                if not cur_p:
+                    cur_p = p
+                elif len(cur_p) + len(p) + 2 <= limit:
+                    cur_p += "\n\n" + p
+                else:
+                    flat_blocks.append(cur_p)
+                    cur_p = p
+            if cur_p:
+                flat_blocks.append(cur_p)
+
+    pages: list[str] = []
+    current_page = ""
+    for block in flat_blocks:
+        if not current_page:
+            current_page = block
+        elif len(current_page) + len(block) + 2 <= limit:
+            current_page += "\n\n" + block
+        else:
+            pages.append(current_page)
+            current_page = block
+    if current_page:
+        pages.append(current_page)
+
+    return pages or ["⚠️ Заявка пуста."]
 
 
 async def get_page_select_data(
@@ -131,7 +160,7 @@ async def get_app_detail_data(
     dialog_manager: DialogManager,
     **_kwargs: Any,
 ) -> dict[str, Any]:
-    """Load selected Stage 2 application and format details."""
+    """Load selected Stage 2 application and format full details with Stage 1 and Stage 2 info."""
     db: Database | None = dialog_manager.middleware_data.get("db")
     selected_user_id: int | None = dialog_manager.dialog_data.get("selected_user_id")
 
@@ -156,13 +185,45 @@ async def get_app_detail_data(
                 is_reviewed = stage2_app.reviewed
                 full_name = stage1_app.full_name if stage1_app else f"User_{selected_user_id}"
                 username_str = f"@{user.telegram_username}" if user and user.telegram_username else "—"
+                tg_id_str = str(user.telegram_id) if user else str(selected_user_id)
                 phone_str = _v(stage1_app.phone if stage1_app else None)
                 email_str = _v(stage1_app.email_st if stage1_app else None)
                 faculty_str = _v(stage1_app.faculty if stage1_app else None)
                 course_str = _v(stage1_app.course if stage1_app else None)
+                days_str = _v(stage1_app.days_count if stage1_app else None)
+                day_zero_str = _yn(stage1_app.day_zero_available if stage1_app else None)
                 pref_role_str = _v(stage1_app.preferred_role if stage1_app else stage2_app.role_type)
-                submitted_at_str = stage2_app.created_at.strftime('%d.%m.%Y %H:%M:%S') if stage2_app.created_at else "—"
 
+                stage1_date_str = stage1_app.created_at.strftime('%d.%m.%Y %H:%M') if (stage1_app and stage1_app.created_at) else "—"
+                stage2_date_str = stage2_app.created_at.strftime('%d.%m.%Y %H:%M') if stage2_app.created_at else "—"
+                stage2_completed_str = "✅ Завершен" if stage2_app.is_completed else "⏳ В процессе / оборван таймером"
+                reviewed_str = "✅ Да" if is_reviewed else "❌ Нет"
+
+                # Блок 1: Профиль и контактная информация
+                sec1 = (
+                    f"👤 <b>{full_name}</b> ({username_str})\n"
+                    f"🆔 TG ID: <code>{tg_id_str}</code>\n"
+                    f"📱 {phone_str} | 📧 {email_str}\n"
+                    f"🎓 {faculty_str}, {course_str}\n"
+                    f"📅 Дни: {days_str} | 0️⃣: {day_zero_str}\n\n" # TODO: dark blue 0
+                    f"🎭 Роль: <b>{pref_role_str}</b>\n"
+                    f"🕒 1-й этап: {stage1_date_str} | 2-й этап: {stage2_date_str}\n\n"
+                    f"🏁 Статус 2-го этапа: <b>{stage2_completed_str}</b>\n"
+                    f"👀 Проверено: <b>{reviewed_str}</b>"
+                )
+
+                sections = [sec1]
+
+                # Блок 2: Эссе 1-го этапа (мотивация и опыт)
+                if stage1_app:
+                    sec_stage1 = (
+                        f"{emoji("➡️", "light_blue")}<b>──────── 1-Й ЭТАП (АНКЕТА)</b>\n\n"
+                        f"{emoji("⭐️", "light_blue")} <b>Почему ты - идеальный волонтер:</b>\n{_v(stage1_app.motivation)}\n\n"
+                        f"{emoji("✨", "light_blue")} <b>Опыт волонтерства:</b>\n{_v(stage1_app.volunteer_experience)}"
+                    )
+                    sections.append(sec_stage1)
+
+                # Блок 3 и 4: Задания 2-го этапа
                 if stage2_app.role_type == "general":
                     has_videos = bool(
                         stage2_app.vq1_file_id
@@ -171,39 +232,33 @@ async def get_app_detail_data(
                         or stage2_app.vq4_file_id
                         or stage2_app.vq5_file_id
                     )
-                    full_text = (
-                        f"👤 <b>{full_name}</b> ({username_str})\n"
-                        f"📱 {phone_str} | 📧 {email_str}\n"
-                        f"🎓 {faculty_str}, {course_str}\n"
-                        f"🎭 <b>Роль:</b> {pref_role_str} (Общий функционал)\n"
-                        f"🕒 <b>Сдано:</b> {submitted_at_str}\n"
-                        f"👀 <b>Проверено:</b> {'Да' if is_reviewed else 'Нет'}\n\n"
-                        f"──────── ПИСЬМЕННЫЕ ВОПРОСЫ ────────\n\n"
-                        f"<b>1. О Конференции МБ:</b>\n{_v(stage2_app.q1_about_mb)}\n\n"
-                        f"<b>2. Мотивация:</b>\n{_v(stage2_app.q2_motivation)}\n\n"
-                        f"<b>3. Что делает мероприятие хорошим:</b>\n{_v(stage2_app.q3_well_organized)}\n\n"
-                        f"──────── ВИДЕОИНТЕРВЬЮ ────────\n"
-                        f"📹 1. Самостоятельное решение: {'✅' if stage2_app.vq1_file_id else '❌'}\n"
-                        f"📹 2. Жертва комфортом: {'✅' if stage2_app.vq2_file_id else '❌'}\n"
-                        f"📹 3. Кейс с приоритетами: {'✅' if stage2_app.vq3_file_id else '❌'}\n"
-                        f"📹 4. Решение руководителя: {'✅' if stage2_app.vq4_file_id else '❌'}\n"
-                        f"📹 5. Сложный человек в команде: {'✅' if stage2_app.vq5_file_id else '❌'}\n"
+                    sec_stage2_written = (
+                        f"{emoji("➡️", "dark_blue")}<b>──────── 2-Й ЭТАП: ПИСЬМЕННЫЕ ВОПРОСЫ</b>\n\n" # TODO: dark_blue arrow
+                        f"<b>{num_emoji(1, "dark_blue")} О Конференции МБ:</b>\n{_v(stage2_app.q1_about_mb)}\n\n"
+                        f"<b>{num_emoji(2, "dark_blue")} Мотивация на МБ:</b>\n{_v(stage2_app.q2_motivation)}\n\n"
+                        f"<b>{num_emoji(3, "dark_blue")} Что делает мероприятие хорошим:</b>\n{_v(stage2_app.q3_well_organized)}"
                     )
+                    sec_stage2_video = (
+                        f"{emoji("➡️", "orange")}<b>──────── 2-Й ЭТАП: ВИДЕОИНТЕРВЬЮ</b>\n\n" # TODO: light_blue arrow
+                        f"📹 {num_emoji(1, "orange")} Самостоятельное решение: {'✅ Записано' if stage2_app.vq1_file_id else '❌ Нет'}\n"
+                        f"📹 {num_emoji(2, "orange")} Жертва комфортом: {'✅ Записано' if stage2_app.vq2_file_id else '❌ Нет'}\n"
+                        f"📹 {num_emoji(3, "orange")} Кейс с приоритетами: {'✅ Записано' if stage2_app.vq3_file_id else '❌ Нет'}\n"
+                        f"📹 {num_emoji(4, "orange")} Решение руководителя: {'✅ Записано' if stage2_app.vq4_file_id else '❌ Нет'}\n"
+                        f"📹 {num_emoji(5, "orange")} Сложный человек в команде: {'✅ Записано' if stage2_app.vq5_file_id else '❌ Нет'}\n\n"
+                        f"<i>💡 Нажмите кнопку «🎥 Видео ▶️» ниже, чтобы посмотреть все кружки в чате.</i>"
+                    )
+                    sections.append(sec_stage2_written)
+                    sections.append(sec_stage2_video)
                 else:
-                    full_text = (
-                        f"👤 <b>{full_name}</b> ({username_str})\n"
-                        f"📱 {phone_str} | 📧 {email_str}\n"
-                        f"🎓 {faculty_str}, {course_str}\n"
-                        f"📸 <b>Роль:</b> {pref_role_str} (Медиа)\n"
-                        f"🕒 <b>Сдано:</b> {submitted_at_str}\n"
-                        f"👀 <b>Проверено:</b> {'Да' if is_reviewed else 'Нет'}\n\n"
-                        f"──────── ЗАДАНИЯ МЕДИА ────────\n\n"
+                    sec_stage2_media = (
+                        "📸 <b>──────── 2-Й ЭТАП: ЗАДАНИЯ МЕДИА ────────</b>\n\n"
                         f"<b>1. Свое оборудование:</b> {_yn(stage2_app.media_has_equipment)}\n\n"
                         f"<b>2. Опыт профессиональной съемки:</b>\n{_v(stage2_app.media_experience)}\n\n"
-                        f"<b>3. Портфолио:</b>\n{_v(stage2_app.media_portfolio)}\n"
+                        f"<b>3. Портфолио:</b>\n{_v(stage2_app.media_portfolio)}"
                     )
+                    sections.append(sec_stage2_media)
 
-                pages = _split_pages(full_text)
+                pages = _build_review_pages(sections, limit=2800)
                 total_pages = len(pages)
                 idx = dialog_manager.dialog_data.get("detail_page_idx", 0)
                 idx = max(0, min(idx, total_pages - 1))
@@ -211,13 +266,13 @@ async def get_app_detail_data(
 
                 page_text = pages[idx]
                 if total_pages > 1:
-                    page_text = f"<i>📄 Часть {idx + 1}/{total_pages}</i>\n\n" + page_text
+                    page_text = f"<i>📄 Страница {idx + 1} из {total_pages}</i>\n\n" + page_text
 
                 detail_text = page_text
                 has_detail_prev = idx > 0
                 has_detail_next = idx < total_pages - 1
         except Exception as e:
-            logger.error("[STAGE2_REVIEW] get_app_detail_data failed: %s", e)
+            logger.error("[STAGE2_REVIEW] get_app_detail_data failed: %s", e, exc_info=True)
             detail_text = f"❌ Ошибка загрузки данных: {e}"
         finally:
             await session.close()
@@ -254,9 +309,7 @@ async def get_video_data(
 
     return {
         "video_header": (
-            f"🎥 <b>Видеоинтервью кандидата</b>\n"
+            f"{emoji("⬇️", "orange")}  <b>Видеоинтервью кандидата</b>\n\n"
             f"👤 <b>{full_name}</b>\n\n"
-            "Все видео-кружочки отправлены ниже в этот чат.\n"
-            "При возврате назад они будут автоматически удалены."
         )
     }
