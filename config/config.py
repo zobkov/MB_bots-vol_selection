@@ -52,6 +52,7 @@ class Config:
     google: Optional[GoogleConfig] = None
     admin_ids: list[int] = field(default_factory=list)
     log_level: str = "INFO"
+    stage2_preview: bool = False
 
 def load_config(path: str = None) -> Config:
     # Загружаем JSON конфигурацию
@@ -117,7 +118,8 @@ def load_config(path: str = None) -> Config:
                 admin_ids.append(int(item))
 
     log_level = env.str("LOG_LEVEL", "INFO")
-    
+    stage2_preview = env.bool("STAGE2_PREVIEW", False)
+
     return Config(
         tg_bot=tg_bot,
         db=db_config,
@@ -125,5 +127,6 @@ def load_config(path: str = None) -> Config:
         selection=selection_config,
         google=google_config,
         admin_ids=admin_ids,
-        log_level=log_level
+        log_level=log_level,
+        stage2_preview=stage2_preview,
     )

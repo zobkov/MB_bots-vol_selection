@@ -4,6 +4,7 @@ from aiogram_dialog.widgets.kbd import Start, SwitchTo
 from aiogram_dialog.widgets.text import Const, Format
 
 from bot.states import MenuSG, ApplicationSG, Stage2SG
+from config.config import Config
 from database.db import Database
 from database.repositories import UserRepository, ApplicationRepository, Stage2Repository
 from utils.emojis import emoji
@@ -14,8 +15,9 @@ logger = logging.getLogger(__name__)
 async def get_menu_data(dialog_manager: DialogManager, **kwargs):
     """Геттер данных для главного меню"""
     db: Database = dialog_manager.middleware_data.get("db")
+    config: Config = dialog_manager.middleware_data.get("config")
     user = dialog_manager.event.from_user
-    
+
     is_submitted = False
     is_stage2_completed = False
 
@@ -56,24 +58,45 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
                         is_stage2_completed = bool(stage2_app.media_portfolio or stage2_app.media_experience)
         finally:
             await session.close()
-    
+
+    is_admin = bool(config and user and user.id in config.admin_ids)
+    stage2_preview = bool(config and config.stage2_preview)
+
     logger.info(
-        "[MENU_GETTER] user=%s id=%s is_submitted=%s is_stage2_completed=%s can_start_stage2=%s",
+        "[MENU_GETTER] user=%s id=%s is_submitted=%s is_stage2_completed=%s can_start_stage2=%s is_admin=%s stage2_preview=%s",
         user.id if user else None,
         db_user.id if 'db_user' in locals() else None,
         is_submitted,
         is_stage2_completed,
-        is_submitted and not is_stage2_completed
+        is_submitted and not is_stage2_completed,
+        is_admin,
+        stage2_preview,
     )
 
-    stage1_status_text = f"<b>{emoji("✅")}  Заявка подана</b>" if is_submitted else f"<b>{emoji("❌")} Заявка не подана</b>"
-    
+    # Не-админы в режиме превью видят старое меню без 2-го этапа
+    if stage2_preview and not is_admin:
+        stage1_status_text = "<b>Заявка подана</b>" if is_submitted else "<b>Заявка не подана</b>"
+        menu_text = (
+            f'{emoji("🌍")} <b>Личный кабинет кандидата в команду волонтеров МБ</b>\n\n'
+            f'{emoji("arrow_right")}  Сбор заявок открыт до <b>21 сентября 23:59</b>\n\n'
+            f'📝 Статус заявки: {stage1_status_text}'
+        )
+        return {
+            "menu_text": menu_text,
+            "is_submitted": is_submitted,
+            "not_submitted": not is_submitted,
+            "can_start_stage2": False,
+            "stage2_completed": False,
+        }
+
+    stage1_status_text = f"<b>{emoji('✅')}  Заявка подана</b>" if is_submitted else f"<b>{emoji('❌')} Заявка не подана</b>"
+
     if is_stage2_completed:
-        stage2_status_text = f"<b>{emoji("✅", "orange")}  Пройден</b>"
+        stage2_status_text = f"<b>{emoji('✅', 'orange')}  Пройден</b>"
     elif is_submitted:
-        stage2_status_text = f"<b>{emoji("fire", "orange")}  Доступен для прохождения</b>"
+        stage2_status_text = f"<b>{emoji('fire', 'orange')}  Доступен для прохождения</b>"
     else:
-        stage2_status_text = f"<b>{emoji("cross", "orange")} Недоступен</b>"
+        stage2_status_text = f"<b>{emoji('cross', 'orange')} Недоступен</b>"
 
     menu_text = (
         f'{emoji("🌍")} <b>Личный кабинет кандидата в команду волонтеров МБ 2026</b>\n\n'
@@ -81,7 +104,7 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
         f'<b>2-й этап (Тестирование):</b> {stage2_status_text}\n\n'
         f'{emoji("🕐")} Результаты отбора будут объявлены <b>4–7 октября 2026</b>.'
     )
-    
+
     return {
         "menu_text": menu_text,
         "is_submitted": is_submitted,
