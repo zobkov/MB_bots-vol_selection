@@ -224,6 +224,7 @@ class Stage2Repository:
                     media_has_equipment=data.get('media_has_equipment'),
                     media_experience=data.get('media_experience'),
                     media_portfolio=data.get('media_portfolio'),
+                    is_completed=data.get('is_completed', False),
                     reviewed=data.get('reviewed', False)
                 )
                 self.session.add(app)
@@ -241,6 +242,20 @@ class Stage2Repository:
                 return existing
         except Exception as e:
             log_error(e, f"Ошибка при сохранении заявки 2-го этапа для user_id={user_id}")
+            raise
+
+    async def mark_completed(self, user_id: int) -> bool:
+        """Пометить 2-й этап как завершенный (пользователем или по таймауту)"""
+        try:
+            result = await self.session.execute(
+                update(Stage2Application)
+                .where(Stage2Application.user_id == user_id)
+                .values(is_completed=True)
+            )
+            await self.session.commit()
+            return result.rowcount > 0
+        except Exception as e:
+            log_error(e, f"Ошибка при установке is_completed для user_id={user_id}")
             raise
 
     async def count_all(self) -> int:

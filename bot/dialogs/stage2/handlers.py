@@ -119,7 +119,7 @@ async def on_stage2_dialog_close(result: Any, manager: DialogManager) -> None:
         logger.warning("[STAGE2] Failed to cancel timer on dialog close: %s", e)
 
 
-async def _save_stage2_progress(dialog_manager: DialogManager, telegram_id: int) -> None:
+async def _save_stage2_progress(dialog_manager: DialogManager, telegram_id: int, is_completed: bool = False) -> None:
     """Save current stage 2 dialog_data answers to the database."""
     db: Database | None = dialog_manager.middleware_data.get("db")
     if not db:
@@ -145,6 +145,7 @@ async def _save_stage2_progress(dialog_manager: DialogManager, telegram_id: int)
                 "media_has_equipment": dd.get("media_has_equipment"),
                 "media_experience": dd.get("media_experience"),
                 "media_portfolio": dd.get("media_portfolio"),
+                "is_completed": is_completed or bool(dd.get("is_completed")),
             }
             await stage2_repo.upsert_application(db_user.id, payload)
     except Exception as e:
@@ -279,10 +280,11 @@ async def on_vq5(
     **_kwargs: Any,
 ) -> None:
     dialog_manager.dialog_data["vq5_file_id"] = message.video_note.file_id
+    dialog_manager.dialog_data["is_completed"] = True
 
     user = message.from_user
     cancel_user_timer(user.id)
-    await _save_stage2_progress(dialog_manager, user.id)
+    await _save_stage2_progress(dialog_manager, user.id, is_completed=True)
 
     username = user.username or f"{user.first_name or ''}".strip()
     log_user_action(user.id, username, "STAGE2_SUBMITTED_GENERAL", "Stage 2 general submitted")
@@ -354,7 +356,8 @@ async def on_media_portfolio_entered(
         await message.answer(_TOO_LONG_MSG)
         return
     dialog_manager.dialog_data["media_portfolio"] = value.strip()
-    await _save_stage2_progress(dialog_manager, message.from_user.id)
+    dialog_manager.dialog_data["is_completed"] = True
+    await _save_stage2_progress(dialog_manager, message.from_user.id, is_completed=True)
 
     user = message.from_user
     username = user.username or f"{user.first_name or ''}".strip()

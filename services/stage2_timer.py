@@ -7,6 +7,9 @@ from typing import Optional, Any
 
 from aiogram_dialog import StartMode, ShowMode
 from bot.states import Stage2SG
+from config.config import load_config
+from database.db import Database
+from database.repositories import UserRepository, Stage2Repository
 
 logger = logging.getLogger(__name__)
 
@@ -101,14 +104,32 @@ def _trigger_warning(user_id: int, text: str, bot) -> None:
 
 
 async def _force_complete_stage2(user_id: int, bot) -> None:
-    """Force transition to success screen in aiogram_dialog."""
+    """Force transition to success screen in aiogram_dialog and mark is_completed in DB."""
     logger.info("[STAGE2_TIMER] Executing forced completion for user_id=%d", user_id)
     _active_user_timers.pop(user_id, None)
 
-    # 1. Send termination notice
+    # 1. Update database record to mark as completed
+    try:
+        config = load_config()
+        db = Database(config)
+        session = await db.get_session()
+        try:
+            user_repo = UserRepository(session)
+            stage2_repo = Stage2Repository(session)
+            db_user = await user_repo.get_user_by_telegram_id(user_id)
+            if db_user:
+                await stage2_repo.mark_completed(db_user.id)
+                logger.info("[STAGE2_TIMER] Marked is_completed=True in DB for user_id=%d", user_id)
+        finally:
+            await session.close()
+            await db.close()
+    except Exception as e:
+        logger.error("[STAGE2_TIMER] Failed to mark is_completed in DB for %d: %s", user_id, e)
+
+    # 2. Send termination notice
     await _safe_send_message(user_id, FINAL_TERMINATED_TEXT, bot)
 
-    # 2. Switch dialog to success screen if factory is available
+    # 3. Switch dialog to success screen if factory is available
     if _bg_manager_factory and bot:
         try:
             bg_manager = _bg_manager_factory.bg(bot=bot, user_id=user_id, chat_id=user_id)

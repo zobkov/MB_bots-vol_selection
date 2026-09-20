@@ -57,8 +57,9 @@ async def get_stage2_main_data(
 
                 stage2_app = await stage2_repo.get_by_user_id(user.id)
                 if stage2_app:
-                    # Completed if general has all 5 vqs or media has portfolio
-                    if stage2_app.role_type == "general":
+                    if stage2_app.is_completed:
+                        already_completed = True
+                    elif stage2_app.role_type == "general":
                         already_completed = bool(
                             stage2_app.vq1_file_id
                             and stage2_app.vq2_file_id

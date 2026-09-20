@@ -42,7 +42,9 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
             if is_submitted:
                 stage2_app = await stage2_repo.get_by_user_id(db_user.id)
                 if stage2_app:
-                    if stage2_app.role_type == "general":
+                    if stage2_app.is_completed:
+                        is_stage2_completed = True
+                    elif stage2_app.role_type == "general":
                         is_stage2_completed = bool(
                             stage2_app.vq1_file_id
                             and stage2_app.vq2_file_id
@@ -103,12 +105,6 @@ menu_dialog = Dialog(
             id="start_stage2_from_menu",
             state=Stage2SG.MAIN,
             when="can_start_stage2"
-        ),
-        Start(
-            Const("✅ 2-й этап успешно сдан"),
-            id="stage2_done_btn",
-            state=Stage2SG.MAIN,
-            when="stage2_completed"
         ),
         SwitchTo(
             Const("📞 Поддержка"),

@@ -93,6 +93,9 @@ class Stage2Application(Base):
     # 3. Ссылка на портфолио
     media_portfolio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Статус сдачи и завершения этапа (пользователем или по таймауту)
+    is_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     # Статус проверки администратором
     reviewed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
