@@ -192,6 +192,19 @@ class ApplicationRepository:
         )
         return result.scalars().first()
 
+    async def delete_user_applications(self, user_id: int) -> int:
+        """Удалить все заявки 1-го этапа пользователя"""
+        try:
+            result = await self.session.execute(
+                delete(Application).where(Application.user_id == user_id)
+            )
+            await self.session.commit()
+            log_db_operation("DELETE", "applications", f"Deleted applications for user_id={user_id}")
+            return result.rowcount
+        except Exception as e:
+            log_error(e, f"Ошибка при удалении заявок 1-го этапа для user_id={user_id}")
+            raise
+
 
 class Stage2Repository:
     def __init__(self, session: AsyncSession, google_sheets_service: Optional[GoogleSheetsService] = None):
@@ -204,6 +217,19 @@ class Stage2Repository:
             select(Stage2Application).where(Stage2Application.user_id == user_id)
         )
         return result.scalar_one_or_none()
+
+    async def delete_by_user_id(self, user_id: int) -> int:
+        """Удалить заявку 2-го этапа пользователя"""
+        try:
+            result = await self.session.execute(
+                delete(Stage2Application).where(Stage2Application.user_id == user_id)
+            )
+            await self.session.commit()
+            log_db_operation("DELETE", "stage2_applications", f"Deleted stage 2 app for user_id={user_id}")
+            return result.rowcount
+        except Exception as e:
+            log_error(e, f"Ошибка при удалении заявки 2-го этапа для user_id={user_id}")
+            raise
 
     async def upsert_application(self, user_id: int, data: Dict[str, Any]) -> Stage2Application:
         """Создать или обновить заявку 2-го этапа"""

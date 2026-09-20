@@ -14,11 +14,16 @@ from bot.states import Stage2SG
 from database.db import Database
 from database.repositories import UserRepository, Stage2Repository
 from services.stage2_timer import (
+    get_timer_mode,
     schedule_user_timer,
+    schedule_individual_question_timer,
     cancel_user_timer,
     get_stage2_duration_sec,
+    get_ind_timer_settings,
     format_duration,
     STARTED_TEXT,
+    STARTED_IND_WRITTEN_TEXT,
+    STARTED_IND_VIDEO_TEXT,
     MSK_OFFSET,
 )
 from utils.logging_config import log_user_action
@@ -71,23 +76,33 @@ async def on_start_general_yes(
     await callback.answer()
 
     user_id = callback.from_user.id
-    duration_sec = get_stage2_duration_sec()
-    now_utc = datetime.now(tz=timezone.utc)
-    now_msk = now_utc + MSK_OFFSET
-    deadline_msk = now_msk + timedelta(seconds=duration_sec)
-
     bot: Bot | None = dialog_manager.middleware_data.get("bot")
-    schedule_user_timer(user_id, bot=bot, seconds=duration_sec)
+    timer_mode = get_timer_mode()
 
-    time_fmt = "%H:%M:%S" if duration_sec < 300 else "%H:%M"
-    await callback.message.answer(
-        STARTED_TEXT.format(
-            started=now_msk.strftime(time_fmt),
-            deadline=deadline_msk.strftime(time_fmt),
-            duration=format_duration(duration_sec),
-        ),
-        parse_mode="HTML",
-    )
+    if timer_mode == "basic":
+        duration_sec = get_stage2_duration_sec()
+        now_utc = datetime.now(tz=timezone.utc)
+        now_msk = now_utc + MSK_OFFSET
+        deadline_msk = now_msk + timedelta(seconds=duration_sec)
+        schedule_user_timer(user_id, bot=bot, seconds=duration_sec)
+
+        time_fmt = "%H:%M:%S" if duration_sec < 300 else "%H:%M"
+        await callback.message.answer(
+            STARTED_TEXT.format(
+                started=now_msk.strftime(time_fmt),
+                deadline=deadline_msk.strftime(time_fmt),
+                duration=format_duration(duration_sec),
+            ),
+            parse_mode="HTML",
+        )
+    else:
+        # Индивидуальный режим: запускаем таймер первого вопроса q1
+        written_sec, _, _ = get_ind_timer_settings()
+        schedule_individual_question_timer(user_id, "q1_about_mb", bot=bot)
+        await callback.message.answer(
+            STARTED_IND_WRITTEN_TEXT.format(duration=format_duration(written_sec)),
+            parse_mode="HTML",
+        )
 
     await dialog_manager.switch_to(Stage2SG.q1_about_mb, show_mode=ShowMode.DELETE_AND_SEND)
 
@@ -170,6 +185,17 @@ async def on_q1_entered(
         return
     dialog_manager.dialog_data["q1_about_mb"] = value.strip()
     await _save_stage2_progress(dialog_manager, message.from_user.id)
+
+    # При ind режиме отменяем таймер q1 и запускаем таймер q2
+    if get_timer_mode() == "ind":
+        bot: Bot | None = dialog_manager.middleware_data.get("bot")
+        written_sec, _, _ = get_ind_timer_settings()
+        schedule_individual_question_timer(message.from_user.id, "q2_motivation", bot=bot)
+        await message.answer(
+            STARTED_IND_WRITTEN_TEXT.format(duration=format_duration(written_sec)),
+            parse_mode="HTML",
+        )
+
     await dialog_manager.switch_to(Stage2SG.q2_motivation)
 
 
@@ -185,6 +211,17 @@ async def on_q2_entered(
         return
     dialog_manager.dialog_data["q2_motivation"] = value.strip()
     await _save_stage2_progress(dialog_manager, message.from_user.id)
+
+    # При ind режиме отменяем таймер q2 и запускаем таймер q3
+    if get_timer_mode() == "ind":
+        bot: Bot | None = dialog_manager.middleware_data.get("bot")
+        written_sec, _, _ = get_ind_timer_settings()
+        schedule_individual_question_timer(message.from_user.id, "q3_well_organized", bot=bot)
+        await message.answer(
+            STARTED_IND_WRITTEN_TEXT.format(duration=format_duration(written_sec)),
+            parse_mode="HTML",
+        )
+
     await dialog_manager.switch_to(Stage2SG.q3_well_organized)
 
 
@@ -200,6 +237,11 @@ async def on_q3_entered(
         return
     dialog_manager.dialog_data["q3_well_organized"] = value.strip()
     await _save_stage2_progress(dialog_manager, message.from_user.id)
+
+    # При ind режиме отменяем таймер q3, на экране video_intro таймер ждет нажатия
+    if get_timer_mode() == "ind":
+        cancel_user_timer(message.from_user.id)
+
     await dialog_manager.switch_to(Stage2SG.video_intro)
 
 
@@ -214,6 +256,14 @@ async def on_video_proceed(
     **_kwargs: Any,
 ) -> None:
     await callback.answer()
+    if get_timer_mode() == "ind":
+        bot: Bot | None = dialog_manager.middleware_data.get("bot")
+        _, video_sec, _ = get_ind_timer_settings()
+        schedule_individual_question_timer(callback.from_user.id, "vq1", bot=bot)
+        await callback.message.answer(
+            STARTED_IND_VIDEO_TEXT.format(duration=format_duration(video_sec)),
+            parse_mode="HTML",
+        )
     await dialog_manager.switch_to(Stage2SG.vq1)
 
 
@@ -237,6 +287,16 @@ async def on_vq1(
 ) -> None:
     dialog_manager.dialog_data["vq1_file_id"] = message.video_note.file_id
     await _save_stage2_progress(dialog_manager, message.from_user.id)
+
+    if get_timer_mode() == "ind":
+        bot: Bot | None = dialog_manager.middleware_data.get("bot")
+        _, video_sec, _ = get_ind_timer_settings()
+        schedule_individual_question_timer(message.from_user.id, "vq2", bot=bot)
+        await message.answer(
+            STARTED_IND_VIDEO_TEXT.format(duration=format_duration(video_sec)),
+            parse_mode="HTML",
+        )
+
     await dialog_manager.switch_to(Stage2SG.vq2)
 
 
@@ -248,6 +308,16 @@ async def on_vq2(
 ) -> None:
     dialog_manager.dialog_data["vq2_file_id"] = message.video_note.file_id
     await _save_stage2_progress(dialog_manager, message.from_user.id)
+
+    if get_timer_mode() == "ind":
+        bot: Bot | None = dialog_manager.middleware_data.get("bot")
+        _, video_sec, _ = get_ind_timer_settings()
+        schedule_individual_question_timer(message.from_user.id, "vq3", bot=bot)
+        await message.answer(
+            STARTED_IND_VIDEO_TEXT.format(duration=format_duration(video_sec)),
+            parse_mode="HTML",
+        )
+
     await dialog_manager.switch_to(Stage2SG.vq3)
 
 
@@ -259,6 +329,16 @@ async def on_vq3(
 ) -> None:
     dialog_manager.dialog_data["vq3_file_id"] = message.video_note.file_id
     await _save_stage2_progress(dialog_manager, message.from_user.id)
+
+    if get_timer_mode() == "ind":
+        bot: Bot | None = dialog_manager.middleware_data.get("bot")
+        _, video_sec, _ = get_ind_timer_settings()
+        schedule_individual_question_timer(message.from_user.id, "vq4", bot=bot)
+        await message.answer(
+            STARTED_IND_VIDEO_TEXT.format(duration=format_duration(video_sec)),
+            parse_mode="HTML",
+        )
+
     await dialog_manager.switch_to(Stage2SG.vq4)
 
 
@@ -270,6 +350,16 @@ async def on_vq4(
 ) -> None:
     dialog_manager.dialog_data["vq4_file_id"] = message.video_note.file_id
     await _save_stage2_progress(dialog_manager, message.from_user.id)
+
+    if get_timer_mode() == "ind":
+        bot: Bot | None = dialog_manager.middleware_data.get("bot")
+        _, video_sec, _ = get_ind_timer_settings()
+        schedule_individual_question_timer(message.from_user.id, "vq5", bot=bot)
+        await message.answer(
+            STARTED_IND_VIDEO_TEXT.format(duration=format_duration(video_sec)),
+            parse_mode="HTML",
+        )
+
     await dialog_manager.switch_to(Stage2SG.vq5)
 
 

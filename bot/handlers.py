@@ -5,9 +5,18 @@ from aiogram_dialog import DialogManager, StartMode
 
 from bot.states import StartSG, ApplicationSG, MenuSG, ViewUserSG, Stage2SG, Stage2ReviewSG
 from config.config import Config
-from database.repositories import UserRepository
+from database.repositories import UserRepository, ApplicationRepository, Stage2Repository
 from database.db import Database
-from services.stage2_timer import get_stage2_duration_sec, set_stage2_duration_sec, format_duration, cancel_user_timer
+from services.stage2_timer import (
+    get_timer_mode,
+    set_timer_mode,
+    get_stage2_duration_sec,
+    set_stage2_duration_sec,
+    get_ind_timer_settings,
+    set_ind_timer_settings,
+    format_duration,
+    cancel_user_timer,
+)
 from utils.logging_config import log_user_action
 
 router = Router()
@@ -291,6 +300,188 @@ async def cmd_basic_timer_duration(message: Message, command: CommandObject, dia
         f"2. ⚠️ 20% осталось — через <b>{last_sec} сек.</b>\n"
         f"3. ⏰ 100% времени (таймаут) — через <b>{new_sec} сек.</b>"
     )
+
+
+@router.message(Command("timer_type"))
+async def cmd_timer_type(message: Message, command: CommandObject, dialog_manager: DialogManager):
+    """
+    Команда просмотра и переключения типа таймера 2-го этапа:
+    /timer_type [basic|ind]
+    """
+    config: Config | None = dialog_manager.middleware_data.get("config")
+    if not check_is_admin(message.from_user.id, config):
+        await message.answer("⛔️ <b>Доступ запрещен.</b> У вас нет прав администратора.")
+        return
+
+    args = command.args.strip().lower() if command.args else ""
+    current_mode = get_timer_mode()
+
+    if not args:
+        mode_desc = (
+            "🌍 <b>basic</b> (Общий таймер на весь 2-й этап целиком)"
+            if current_mode == "basic"
+            else "⏱ <b>ind</b> (Индивидуальный таймер на каждый отдельный вопрос)"
+        )
+        await message.answer(
+            f"⚙️ <b>Текущий режим таймера 2-го этапа:</b>\n{mode_desc}\n\n"
+            "<b>Доступные режимы:</b>\n"
+            "• <code>/timer_type basic</code> — общий таймер на весь этап\n"
+            "• <code>/timer_type ind</code> — индивидуальный таймер на каждый вопрос"
+        )
+        return
+
+    if args not in ("basic", "ind"):
+        await message.answer("❌ Неверный режим. Допустимые значения: <code>basic</code> или <code>ind</code>.")
+        return
+
+    set_timer_mode(args)
+    username = message.from_user.username or f"{message.from_user.first_name or ''}".strip()
+    log_user_action(message.from_user.id, username, "ADMIN_SET_TIMER_TYPE", f"Timer mode set to {args}")
+
+    mode_title = "Общий таймер (basic)" if args == "basic" else "Индивидуальный таймер на каждый вопрос (ind)"
+    await message.answer(f"✅ Режим таймера успешно изменен на: <b>{mode_title}</b>.")
+
+
+@router.message(Command("ind_timer_duration"))
+async def cmd_ind_timer_duration(message: Message, command: CommandObject, dialog_manager: DialogManager):
+    """
+    Команда просмотра и настройки длительностей индивидуального таймера:
+    /ind_timer_duration [written_sec] [video_sec] [grace_sec]
+    """
+    config: Config | None = dialog_manager.middleware_data.get("config")
+    if not check_is_admin(message.from_user.id, config):
+        await message.answer("⛔️ <b>Доступ запрещен.</b> У вас нет прав администратора.")
+        return
+
+    written_sec, video_sec, grace_sec = get_ind_timer_settings()
+    args = command.args.split() if command.args else []
+
+    if len(args) == 0:
+        await message.answer(
+            f"⏱ <b>Текущие настройки индивидуального таймера (режим ind):</b>\n\n"
+            f"✍️ <b>Письменные вопросы (q1–q3):</b> {written_sec} сек. ({format_duration(written_sec)})\n"
+            f"   • Оповещения за 2 мин, 1 мин и 30 сек (или пропорционально)\n"
+            f"🎥 <b>Видео-вопросы (vq1–vq5):</b> {video_sec} сек. ({format_duration(video_sec)})\n"
+            f"   • Оповещения за 2 мин, 1 мин (запись) и 30 сек (отправка)\n"
+            f"⏳ <b>Grace-period для видео:</b> {grace_sec} сек. ({format_duration(grace_sec)})\n\n"
+            "<b>Как изменить:</b>\n"
+            "<code>/ind_timer_duration [письменный_сек] [видео_сек] [grace_сек]</code>\n\n"
+            "<i>Пример для теста:</i> <code>/ind_timer_duration 20 20 10</code>\n"
+            "<i>По умолчанию:</i> <code>/ind_timer_duration 180 180 30</code>"
+        )
+        return
+
+    if len(args) < 3 or not all(a.isdigit() for a in args):
+        await message.answer(
+            "❌ <b>Использование:</b> <code>/ind_timer_duration [письменный_сек] [видео_сек] [grace_сек]</code>\n\n"
+            "<i>Пример:</i> <code>/ind_timer_duration 180 180 30</code>"
+        )
+        return
+
+    new_written = int(args[0])
+    new_video = int(args[1])
+    new_grace = int(args[2])
+
+    if new_written < 5 or new_video < 5:
+        await message.answer("❌ Время на письменный и видео-вопрос должно быть не менее 5 секунд.")
+        return
+
+    set_ind_timer_settings(new_written, new_video, new_grace)
+    username = message.from_user.username or f"{message.from_user.first_name or ''}".strip()
+    log_user_action(
+        message.from_user.id,
+        username,
+        "ADMIN_SET_IND_TIMER",
+        f"written={new_written}s, video={new_video}s, grace={new_grace}s"
+    )
+
+    await message.answer(
+        f"✅ <b>Настройки индивидуального таймера сохранены!</b>\n\n"
+        f"✍️ Письменные: <b>{new_written} сек.</b> ({format_duration(new_written)})\n"
+        f"🎥 Видео: <b>{new_video} сек.</b> ({format_duration(new_video)})\n"
+        f"⏳ Grace-period: <b>{new_grace} сек.</b> ({format_duration(new_grace)})"
+    )
+
+
+@router.message(Command("delete_application", "delete_app", "del_app"))
+async def cmd_delete_application(message: Message, command: CommandObject, dialog_manager: DialogManager):
+    """
+    Команда удаления заявок пользователя:
+    /delete_application [tg_id|username] [1|2|all]
+    1 — удалить только 1-й этап (анкета)
+    2 — удалить только 2-й этап (тестовые задания / видео)
+    all — удалить всё и сбросить пользователя в статус registered
+    """
+    config: Config | None = dialog_manager.middleware_data.get("config")
+    if not check_is_admin(message.from_user.id, config):
+        await message.answer("⛔️ <b>Доступ запрещен.</b> У вас нет прав администратора.")
+        return
+
+    args = command.args.split() if command.args else []
+    if len(args) < 2:
+        await message.answer(
+            "❌ <b>Использование:</b> <code>/delete_application [tg_id|username] [1|2|all]</code>\n\n"
+            "• <code>1</code> — удалить заявку 1-го этапа\n"
+            "• <code>2</code> — удалить заявку 2-го этапа (позволяет пройти заново)\n"
+            "• <code>all</code> — удалить всё и сбросить статус\n\n"
+            "<i>Примеры:</i>\n"
+            "<code>/delete_application @username 2</code>\n"
+            "<code>/delete_application 123456789 all</code>"
+        )
+        return
+
+    target_query = args[0]
+    stage_target = args[1].lower()
+
+    if stage_target not in ("1", "2", "all"):
+        await message.answer("❌ Неверный параметр этапа. Укажите <code>1</code>, <code>2</code> или <code>all</code>.")
+        return
+
+    db: Database = dialog_manager.middleware_data.get("db")
+    if not db:
+        await message.answer("❌ База данных недоступна.")
+        return
+
+    session = await db.get_session()
+    try:
+        user_repo = UserRepository(session)
+        app_repo = ApplicationRepository(session)
+        stage2_repo = Stage2Repository(session)
+
+        user = await user_repo.find_user(target_query)
+        if not user:
+            await message.answer(f"❌ Пользователь <code>{target_query}</code> не найден в базе данных.")
+            return
+
+        cancel_user_timer(user.telegram_id)
+        user_display = f"@{user.telegram_username}" if user.telegram_username else f"ID: <code>{user.telegram_id}</code>"
+        deleted_info = []
+
+        if stage_target in ("1", "all"):
+            count1 = await app_repo.delete_user_applications(user.id)
+            await user_repo.update_status(user.telegram_id, "registered")
+            deleted_info.append(f"анкета 1-го этапа ({count1} зап.)")
+
+        if stage_target in ("2", "all"):
+            count2 = await stage2_repo.delete_by_user_id(user.id)
+            deleted_info.append(f"заявка 2-го этапа ({count2} зап.)")
+
+        username = message.from_user.username or f"{message.from_user.first_name or ''}".strip()
+        log_user_action(
+            message.from_user.id,
+            username,
+            "ADMIN_DELETE_APP",
+            f"Target: {user.telegram_id} (@{user.telegram_username}), Stage: {stage_target}"
+        )
+
+        await message.answer(
+            f"🗑 <b>Данные пользователя {user_display} успешно удалены:</b>\n"
+            f"• Удалено: {', '.join(deleted_info)}\n"
+            f"• Статус в БД: <code>{user.status}</code>\n"
+            f"• Активные таймеры отменены."
+        )
+    finally:
+        await session.close()
 
 
 

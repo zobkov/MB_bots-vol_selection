@@ -8,7 +8,12 @@ from aiogram_dialog import DialogManager
 
 from database.db import Database
 from database.repositories import UserRepository, ApplicationRepository, Stage2Repository
-from services.stage2_timer import get_stage2_duration_sec, format_duration
+from services.stage2_timer import (
+    get_timer_mode,
+    get_stage2_duration_sec,
+    get_ind_timer_settings,
+    format_duration,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +81,26 @@ async def get_stage2_main_data(
 
     can_start = has_stage1 and not already_completed
     dialog_manager.dialog_data["role_type"] = role_type
-    current_sec = get_stage2_duration_sec()
-    duration_str = format_duration(current_sec)
+    
+    timer_mode = get_timer_mode()
+    if timer_mode == "basic":
+        current_sec = get_stage2_duration_sec()
+        duration_str = f"общий таймер: {format_duration(current_sec)}"
+        timer_warning_text = (
+            f"На выполнение всех заданий (письменных и видеоинтервью) отводится <b>{format_duration(current_sec)}</b> "
+            "с момента нажатия кнопки «Да, начать»."
+        )
+    else:
+        written_sec, video_sec, grace_sec = get_ind_timer_settings()
+        duration_str = (
+            f"{format_duration(written_sec)} на каждый письменный вопрос и "
+            f"{format_duration(video_sec)} (+ {format_duration(grace_sec)}) на каждый видео-кружок"
+        )
+        timer_warning_text = (
+            f"На каждый письменный вопрос отводится <b>{format_duration(written_sec)}</b>, "
+            f"а на каждый видео-кружок — <b>{format_duration(video_sec)}</b> (+ {format_duration(grace_sec)} grace-period).\n\n"
+            "После окончания времени бот автоматически переключит вопрос, поэтому отвечать нужно сразу."
+        )
 
     return {
         "has_stage1": has_stage1,
@@ -88,6 +111,7 @@ async def get_stage2_main_data(
         "is_media": role_type == "media",
         "role_title": role_title,
         "duration_str": duration_str,
+        "timer_warning_text": timer_warning_text,
     }
 
 

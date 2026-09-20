@@ -77,8 +77,8 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
 
     menu_text = (
         f'{emoji("earth")} <b>Личный кабинет кандидата в команду волонтеров МБ 2026</b>\n\n'
-        f'📝 <b>1-й этап (Анкета):</b> {stage1_status_text}\n'
-        f'🚀 <b>2-й этап (Тестовые задания):</b> {stage2_status_text}\n\n'
+        f'<b>1-й этап (Анкета):</b> {stage1_status_text}\n'
+        f'<b>2-й этап (Тестовые задания):</b> {stage2_status_text}\n\n'
         f'📅 Результаты отбора будут объявлены <b>4–7 октября 2026</b>.'
     )
     
