@@ -8,6 +8,7 @@ from aiogram_dialog import DialogManager
 
 from database.db import Database
 from database.repositories import UserRepository, ApplicationRepository, Stage2Repository
+from services.stage2_timer import get_stage2_duration_sec, format_duration
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,8 @@ async def get_stage2_main_data(
 
     can_start = has_stage1 and not already_completed
     dialog_manager.dialog_data["role_type"] = role_type
+    current_sec = get_stage2_duration_sec()
+    duration_str = format_duration(current_sec)
 
     return {
         "has_stage1": has_stage1,
@@ -83,6 +86,7 @@ async def get_stage2_main_data(
         "is_general": role_type == "general",
         "is_media": role_type == "media",
         "role_title": role_title,
+        "duration_str": duration_str,
     }
 
 

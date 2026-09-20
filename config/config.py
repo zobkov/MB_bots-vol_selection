@@ -50,6 +50,7 @@ class Config:
     redis: RedisConfig
     selection: SelectionConfig
     google: Optional[GoogleConfig] = None
+    admin_ids: list[int] = field(default_factory=list)
     log_level: str = "INFO"
 
 def load_config(path: str = None) -> Config:
@@ -107,7 +108,14 @@ def load_config(path: str = None) -> Config:
         how_found_options=json_config.get("how_found_options", [])
     )
 
-    
+    admin_ids_raw = env.str("ADMIN_IDS", "")
+    admin_ids = []
+    if admin_ids_raw:
+        for item in admin_ids_raw.split(","):
+            item = item.strip()
+            if item.isdigit():
+                admin_ids.append(int(item))
+
     log_level = env.str("LOG_LEVEL", "INFO")
     
     return Config(
@@ -116,5 +124,6 @@ def load_config(path: str = None) -> Config:
         redis=redis,
         selection=selection_config,
         google=google_config,
+        admin_ids=admin_ids,
         log_level=log_level
     )

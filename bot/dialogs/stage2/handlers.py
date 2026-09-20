@@ -16,8 +16,9 @@ from database.repositories import UserRepository, Stage2Repository
 from services.stage2_timer import (
     schedule_user_timer,
     cancel_user_timer,
+    get_stage2_duration_sec,
+    format_duration,
     STARTED_TEXT,
-    STAGE2_DURATION_MIN,
     MSK_OFFSET,
 )
 from utils.logging_config import log_user_action
@@ -70,17 +71,20 @@ async def on_start_general_yes(
     await callback.answer()
 
     user_id = callback.from_user.id
+    duration_sec = get_stage2_duration_sec()
     now_utc = datetime.now(tz=timezone.utc)
     now_msk = now_utc + MSK_OFFSET
-    deadline_msk = now_msk + timedelta(minutes=STAGE2_DURATION_MIN)
+    deadline_msk = now_msk + timedelta(seconds=duration_sec)
 
     bot: Bot | None = dialog_manager.middleware_data.get("bot")
-    schedule_user_timer(user_id, bot=bot, minutes=STAGE2_DURATION_MIN)
+    schedule_user_timer(user_id, bot=bot, seconds=duration_sec)
 
+    time_fmt = "%H:%M:%S" if duration_sec < 300 else "%H:%M"
     await callback.message.answer(
         STARTED_TEXT.format(
-            started=now_msk.strftime("%H:%M"),
-            deadline=deadline_msk.strftime("%H:%M"),
+            started=now_msk.strftime(time_fmt),
+            deadline=deadline_msk.strftime(time_fmt),
+            duration=format_duration(duration_sec),
         ),
         parse_mode="HTML",
     )

@@ -4,11 +4,20 @@ from aiogram.types import Message
 from aiogram_dialog import DialogManager, StartMode
 
 from bot.states import StartSG, ApplicationSG, MenuSG, ViewUserSG, Stage2SG, Stage2ReviewSG
+from config.config import Config
 from database.repositories import UserRepository
 from database.db import Database
+from services.stage2_timer import get_stage2_duration_sec, set_stage2_duration_sec, format_duration
 from utils.logging_config import log_user_action
 
 router = Router()
+
+
+def check_is_admin(user_id: int, config: Config | None) -> bool:
+    """Check if user_id is in config.admin_ids"""
+    if not config or not config.admin_ids:
+        return False
+    return user_id in config.admin_ids
 
 
 @router.message(Command("start", "menu"))
@@ -59,6 +68,28 @@ async def cmd_apply(message: Message, dialog_manager: DialogManager):
     await dialog_manager.start(ApplicationSG.full_name, mode=StartMode.RESET_STACK)
 
 
+@router.message(Command("stage2"))
+async def cmd_stage2(message: Message, dialog_manager: DialogManager):
+    """Прямой запуск 2-го этапа по команде /stage2"""
+    db: Database = dialog_manager.middleware_data.get("db")
+    if db:
+        session = await db.get_session()
+        try:
+            user_repo = UserRepository(session)
+            await user_repo.get_or_create_user(
+                telegram_id=message.from_user.id,
+                telegram_username=message.from_user.username
+            )
+        finally:
+            await session.close()
+
+    await dialog_manager.start(Stage2SG.MAIN, mode=StartMode.RESET_STACK)
+
+
+# ============================================================================
+# АДМИНИСТРАТИВНЫЕ КОМАНДЫ (проверка прав)
+# ============================================================================
+
 @router.message(Command("sub_status"))
 async def cmd_sub_status(message: Message, command: CommandObject, dialog_manager: DialogManager):
     """
@@ -66,6 +97,11 @@ async def cmd_sub_status(message: Message, command: CommandObject, dialog_manage
     /sub_status [user_id|telegram_username] 1/0
     1 — 'submitted', 0 или 2 — 'registered'
     """
+    config: Config | None = dialog_manager.middleware_data.get("config")
+    if not check_is_admin(message.from_user.id, config):
+        await message.answer("⛔️ <b>Доступ запрещен.</b> У вас нет прав администратора.")
+        return
+
     args = command.args.split() if command.args else []
     if len(args) < 2:
         await message.answer(
@@ -127,6 +163,11 @@ async def cmd_view_user(message: Message, command: CommandObject, dialog_manager
     Команда дебага для просмотра информации и анкеты пользователя:
     /view_user [user_id|telegram_username]
     """
+    config: Config | None = dialog_manager.middleware_data.get("config")
+    if not check_is_admin(message.from_user.id, config):
+        await message.answer("⛔️ <b>Доступ запрещен.</b> У вас нет прав администратора.")
+        return
+
     args = command.args.split() if command.args else []
     if len(args) < 1:
         await message.answer(
@@ -166,30 +207,17 @@ async def cmd_view_user(message: Message, command: CommandObject, dialog_manager
         await session.close()
 
 
-@router.message(Command("stage2"))
-async def cmd_stage2(message: Message, dialog_manager: DialogManager):
-    """Прямой запуск 2-го этапа по команде /stage2"""
-    db: Database = dialog_manager.middleware_data.get("db")
-    if db:
-        session = await db.get_session()
-        try:
-            user_repo = UserRepository(session)
-            await user_repo.get_or_create_user(
-                telegram_id=message.from_user.id,
-                telegram_username=message.from_user.username
-            )
-        finally:
-            await session.close()
-
-    await dialog_manager.start(Stage2SG.MAIN, mode=StartMode.RESET_STACK)
-
-
 @router.message(Command("stage2_review", "vol_review"))
 async def cmd_stage2_review(message: Message, dialog_manager: DialogManager):
     """
     Команда для администраторов:
     /stage2_review или /vol_review — открывает постраничный просмотр заявок 2-го этапа.
     """
+    config: Config | None = dialog_manager.middleware_data.get("config")
+    if not check_is_admin(message.from_user.id, config):
+        await message.answer("⛔️ <b>Доступ запрещен.</b> У вас нет прав администратора.")
+        return
+
     username = message.from_user.username or f"{message.from_user.first_name or ''}".strip()
     log_user_action(
         message.from_user.id,
@@ -199,6 +227,67 @@ async def cmd_stage2_review(message: Message, dialog_manager: DialogManager):
     )
 
     await dialog_manager.start(Stage2ReviewSG.PAGE_SELECT, mode=StartMode.RESET_STACK)
+
+
+@router.message(Command("basic_timer_duration"))
+async def cmd_basic_timer_duration(message: Message, command: CommandObject, dialog_manager: DialogManager):
+    """
+    Команда тестирования и настройки общего таймера 2-го этапа:
+    /basic_timer_duration [sec]
+    """
+    config: Config | None = dialog_manager.middleware_data.get("config")
+    if not check_is_admin(message.from_user.id, config):
+        await message.answer("⛔️ <b>Доступ запрещен.</b> У вас нет прав администратора.")
+        return
+
+    current_sec = get_stage2_duration_sec()
+    args = command.args.strip() if command.args else ""
+
+    if not args:
+        half_sec = current_sec // 2
+        last_sec = int(current_sec * 0.8)
+        await message.answer(
+            f"⏱ <b>Текущая длительность таймера 2-го этапа:</b>\n"
+            f"<b>{current_sec} сек.</b> ({format_duration(current_sec)})\n\n"
+            f"🔔 <b>Тайминги оповещений:</b>\n"
+            f"• ⏳ 50% времени: через {half_sec} сек. (останется {format_duration(current_sec - half_sec)})\n"
+            f"• ⚠️ 20% времени (осталось): через {last_sec} сек. (останется {format_duration(current_sec - last_sec)})\n"
+            f"• ⏰ Окончание времени: через {current_sec} сек.\n\n"
+            f"<b>Как изменить:</b> <code>/basic_timer_duration [секунды]</code>\n"
+            f"<i>Пример для теста:</i> <code>/basic_timer_duration 60</code>\n"
+            f"<i>По умолчанию:</i> <code>/basic_timer_duration 2100</code> (35 минут)"
+        )
+        return
+
+    if not args.isdigit() or int(args) < 5:
+        await message.answer(
+            "❌ Пожалуйста, укажите целое число секунд (минимум 5 секунд).\n"
+            "<i>Пример:</i> <code>/basic_timer_duration 60</code>"
+        )
+        return
+
+    new_sec = int(args)
+    set_stage2_duration_sec(new_sec)
+
+    username = message.from_user.username or f"{message.from_user.first_name or ''}".strip()
+    log_user_action(
+        message.from_user.id,
+        username,
+        "ADMIN_SET_TIMER",
+        f"Timer duration set to {new_sec}s"
+    )
+
+    half_sec = new_sec // 2
+    last_sec = int(new_sec * 0.8)
+    await message.answer(
+        f"✅ <b>Длительность таймера 2-го этапа успешно установлена!</b>\n\n"
+        f"⏱ <b>Новое время:</b> {new_sec} сек. ({format_duration(new_sec)})\n\n"
+        f"🔔 <b>Оповещения будут приходить пропорционально:</b>\n"
+        f"1. ⏳ 50% времени — через <b>{half_sec} сек.</b>\n"
+        f"2. ⚠️ 20% осталось — через <b>{last_sec} сек.</b>\n"
+        f"3. ⏰ 100% времени (таймаут) — через <b>{new_sec} сек.</b>"
+    )
+
 
 
 
