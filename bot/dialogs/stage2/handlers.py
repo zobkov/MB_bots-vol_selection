@@ -119,6 +119,40 @@ async def on_stage2_dialog_close(result: Any, manager: DialogManager) -> None:
         logger.warning("[STAGE2] Failed to cancel timer on dialog close: %s", e)
 
 
+async def _save_stage2_progress(dialog_manager: DialogManager, telegram_id: int) -> None:
+    """Save current stage 2 dialog_data answers to the database."""
+    db: Database | None = dialog_manager.middleware_data.get("db")
+    if not db:
+        return
+    session = await db.get_session()
+    try:
+        user_repo = UserRepository(session)
+        stage2_repo = Stage2Repository(session)
+        db_user = await user_repo.get_user_by_telegram_id(telegram_id)
+        if db_user:
+            dd = dialog_manager.dialog_data
+            role_type = dd.get("role_type", "general")
+            payload = {
+                "role_type": role_type,
+                "q1_about_mb": dd.get("q1_about_mb"),
+                "q2_motivation": dd.get("q2_motivation"),
+                "q3_well_organized": dd.get("q3_well_organized"),
+                "vq1_file_id": dd.get("vq1_file_id"),
+                "vq2_file_id": dd.get("vq2_file_id"),
+                "vq3_file_id": dd.get("vq3_file_id"),
+                "vq4_file_id": dd.get("vq4_file_id"),
+                "vq5_file_id": dd.get("vq5_file_id"),
+                "media_has_equipment": dd.get("media_has_equipment"),
+                "media_experience": dd.get("media_experience"),
+                "media_portfolio": dd.get("media_portfolio"),
+            }
+            await stage2_repo.upsert_application(db_user.id, payload)
+    except Exception as e:
+        logger.warning("[STAGE2] Partial progress save failed for tg_id=%d: %s", telegram_id, e)
+    finally:
+        await session.close()
+
+
 # ============================================================================
 # ПИСЬМЕННЫЕ ВОПРОСЫ (ОБЩИЙ ФУНКЦИОНАЛ)
 # ============================================================================
@@ -134,6 +168,7 @@ async def on_q1_entered(
         await message.answer(_TOO_LONG_MSG)
         return
     dialog_manager.dialog_data["q1_about_mb"] = value.strip()
+    await _save_stage2_progress(dialog_manager, message.from_user.id)
     await dialog_manager.switch_to(Stage2SG.q2_motivation)
 
 
@@ -148,6 +183,7 @@ async def on_q2_entered(
         await message.answer(_TOO_LONG_MSG)
         return
     dialog_manager.dialog_data["q2_motivation"] = value.strip()
+    await _save_stage2_progress(dialog_manager, message.from_user.id)
     await dialog_manager.switch_to(Stage2SG.q3_well_organized)
 
 
@@ -162,6 +198,7 @@ async def on_q3_entered(
         await message.answer(_TOO_LONG_MSG)
         return
     dialog_manager.dialog_data["q3_well_organized"] = value.strip()
+    await _save_stage2_progress(dialog_manager, message.from_user.id)
     await dialog_manager.switch_to(Stage2SG.video_intro)
 
 
@@ -198,6 +235,7 @@ async def on_vq1(
     **_kwargs: Any,
 ) -> None:
     dialog_manager.dialog_data["vq1_file_id"] = message.video_note.file_id
+    await _save_stage2_progress(dialog_manager, message.from_user.id)
     await dialog_manager.switch_to(Stage2SG.vq2)
 
 
@@ -208,6 +246,7 @@ async def on_vq2(
     **_kwargs: Any,
 ) -> None:
     dialog_manager.dialog_data["vq2_file_id"] = message.video_note.file_id
+    await _save_stage2_progress(dialog_manager, message.from_user.id)
     await dialog_manager.switch_to(Stage2SG.vq3)
 
 
@@ -218,6 +257,7 @@ async def on_vq3(
     **_kwargs: Any,
 ) -> None:
     dialog_manager.dialog_data["vq3_file_id"] = message.video_note.file_id
+    await _save_stage2_progress(dialog_manager, message.from_user.id)
     await dialog_manager.switch_to(Stage2SG.vq4)
 
 
@@ -228,6 +268,7 @@ async def on_vq4(
     **_kwargs: Any,
 ) -> None:
     dialog_manager.dialog_data["vq4_file_id"] = message.video_note.file_id
+    await _save_stage2_progress(dialog_manager, message.from_user.id)
     await dialog_manager.switch_to(Stage2SG.vq5)
 
 
@@ -241,36 +282,10 @@ async def on_vq5(
 
     user = message.from_user
     cancel_user_timer(user.id)
+    await _save_stage2_progress(dialog_manager, user.id)
 
-    db: Database | None = dialog_manager.middleware_data.get("db")
-    if db:
-        session = await db.get_session()
-        try:
-            user_repo = UserRepository(session)
-            stage2_repo = Stage2Repository(session)
-            db_user = await user_repo.get_user_by_telegram_id(user.id)
-            if db_user:
-                dd = dialog_manager.dialog_data
-                payload = {
-                    "role_type": "general",
-                    "q1_about_mb": dd.get("q1_about_mb"),
-                    "q2_motivation": dd.get("q2_motivation"),
-                    "q3_well_organized": dd.get("q3_well_organized"),
-                    "vq1_file_id": dd.get("vq1_file_id"),
-                    "vq2_file_id": dd.get("vq2_file_id"),
-                    "vq3_file_id": dd.get("vq3_file_id"),
-                    "vq4_file_id": dd.get("vq4_file_id"),
-                    "vq5_file_id": dd.get("vq5_file_id"),
-                }
-                await stage2_repo.upsert_application(db_user.id, payload)
-                username = user.username or f"{user.first_name or ''}".strip()
-                log_user_action(user.id, username, "STAGE2_SUBMITTED_GENERAL", "Stage 2 general submitted")
-        except Exception as e:
-            logger.error("[STAGE2] Failed to save general application for %d: %s", user.id, e, exc_info=True)
-            await message.answer("❌ Произошла ошибка при сохранении ответов. Напиши, пожалуйста, @zobko.")
-            return
-        finally:
-            await session.close()
+    username = user.username or f"{user.first_name or ''}".strip()
+    log_user_action(user.id, username, "STAGE2_SUBMITTED_GENERAL", "Stage 2 general submitted")
 
     await dialog_manager.switch_to(Stage2SG.success, show_mode=ShowMode.DELETE_AND_SEND)
 
@@ -297,6 +312,7 @@ async def on_media_equipment_yes(
 ) -> None:
     await callback.answer()
     dialog_manager.dialog_data["media_has_equipment"] = True
+    await _save_stage2_progress(dialog_manager, callback.from_user.id)
     await dialog_manager.switch_to(Stage2SG.media_q2_experience)
 
 
@@ -308,6 +324,7 @@ async def on_media_equipment_no(
 ) -> None:
     await callback.answer()
     dialog_manager.dialog_data["media_has_equipment"] = False
+    await _save_stage2_progress(dialog_manager, callback.from_user.id)
     await dialog_manager.switch_to(Stage2SG.media_q2_experience)
 
 
@@ -322,6 +339,7 @@ async def on_media_experience_entered(
         await message.answer(_TOO_LONG_MSG)
         return
     dialog_manager.dialog_data["media_experience"] = value.strip()
+    await _save_stage2_progress(dialog_manager, message.from_user.id)
     await dialog_manager.switch_to(Stage2SG.media_q3_portfolio)
 
 
@@ -336,31 +354,10 @@ async def on_media_portfolio_entered(
         await message.answer(_TOO_LONG_MSG)
         return
     dialog_manager.dialog_data["media_portfolio"] = value.strip()
+    await _save_stage2_progress(dialog_manager, message.from_user.id)
 
     user = message.from_user
-    db: Database | None = dialog_manager.middleware_data.get("db")
-    if db:
-        session = await db.get_session()
-        try:
-            user_repo = UserRepository(session)
-            stage2_repo = Stage2Repository(session)
-            db_user = await user_repo.get_user_by_telegram_id(user.id)
-            if db_user:
-                dd = dialog_manager.dialog_data
-                payload = {
-                    "role_type": "media",
-                    "media_has_equipment": dd.get("media_has_equipment"),
-                    "media_experience": dd.get("media_experience"),
-                    "media_portfolio": dd.get("media_portfolio"),
-                }
-                await stage2_repo.upsert_application(db_user.id, payload)
-                username = user.username or f"{user.first_name or ''}".strip()
-                log_user_action(user.id, username, "STAGE2_SUBMITTED_MEDIA", "Stage 2 media submitted")
-        except Exception as e:
-            logger.error("[STAGE2] Failed to save media application for %d: %s", user.id, e, exc_info=True)
-            await message.answer("❌ Произошла ошибка при сохранении ответов. Напиши, пожалуйста, @zobko.")
-            return
-        finally:
-            await session.close()
+    username = user.username or f"{user.first_name or ''}".strip()
+    log_user_action(user.id, username, "STAGE2_SUBMITTED_MEDIA", "Stage 2 media submitted")
 
     await dialog_manager.switch_to(Stage2SG.success, show_mode=ShowMode.DELETE_AND_SEND)

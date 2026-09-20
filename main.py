@@ -103,7 +103,9 @@ async def main():
         dp.include_router(stage2_review_dialog)
         
         # Настраиваем диалоги
-        setup_dialogs(dp)
+        bg_manager_factory = setup_dialogs(dp)
+        from services.stage2_timer import set_bg_manager_factory
+        set_bg_manager_factory(bg_manager_factory)
         
         # Регистрация обработчика ошибок
         from bot.dialogs.dialog_error_handler import dialog_error_handler
