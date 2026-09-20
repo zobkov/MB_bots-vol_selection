@@ -14,6 +14,7 @@ from services.stage2_timer import (
     get_ind_timer_settings,
     format_duration,
 )
+from utils.emojis import emoji, num_emoji
 
 logger = logging.getLogger(__name__)
 
@@ -94,11 +95,11 @@ async def get_stage2_main_data(
         written_sec, video_sec, grace_sec = get_ind_timer_settings()
         duration_str = (
             f"{format_duration(written_sec)} на каждый письменный вопрос и "
-            f"{format_duration(video_sec)} (+ {format_duration(grace_sec)}) на каждый видео-кружок"
+            f"{format_duration(video_sec)} на каждый видео-кружок"
         )
         timer_warning_text = (
             f"На каждый письменный вопрос отводится <b>{format_duration(written_sec)}</b>, "
-            f"а на каждый видео-кружок — <b>{format_duration(video_sec)}</b> (+ {format_duration(grace_sec)} grace-period).\n\n"
+            f"а на каждый видео-кружок — <b>{format_duration(video_sec)}</b>.\n\n"
             "После окончания времени бот автоматически переключит вопрос, поэтому отвечать нужно сразу."
         )
 
@@ -112,6 +113,11 @@ async def get_stage2_main_data(
         "role_title": role_title,
         "duration_str": duration_str,
         "timer_warning_text": timer_warning_text,
+        "arrow_emoji": emoji("➡️"),
+        "num_emoji_1": num_emoji(1),
+        "num_emoji_2": num_emoji(2),
+        "num_emoji_3": num_emoji(3),
+        "exclamation_emoji": emoji("exclamation", "orange")
     }
 
 

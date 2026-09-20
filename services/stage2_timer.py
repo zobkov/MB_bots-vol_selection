@@ -18,7 +18,7 @@ DEFAULT_STAGE2_DURATION_SEC = 35 * 60
 MSK_OFFSET = timedelta(hours=3)
 
 # Timer mode: "basic" or "ind"
-_timer_mode: str = "basic"
+_timer_mode: str = "ind"
 
 # Configurable basic duration
 _current_duration_sec: int = DEFAULT_STAGE2_DURATION_SEC
@@ -89,12 +89,12 @@ def set_ind_timer_settings(written_sec: int, video_sec: int, grace_sec: int) -> 
 def format_duration(seconds: int) -> str:
     """Format seconds into readable Russian string."""
     if seconds < 60:
-        return f"{seconds} сек."
+        return f"{seconds} сек"
     mins = seconds // 60
     rem_sec = seconds % 60
     if rem_sec == 0:
-        return f"{mins} мин."
-    return f"{mins} мин. {rem_sec} сек."
+        return f"{mins} мин"
+    return f"{mins} мин {rem_sec} сек"
 
 
 # ============================================================================

@@ -66,20 +66,20 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
         is_submitted and not is_stage2_completed
     )
 
-    stage1_status_text = "<b>✅ Заявка подана</b>" if is_submitted else "<b>❌ Заявка не подана</b>"
+    stage1_status_text = f"<b>{emoji("✅")}  Заявка подана</b>" if is_submitted else f"<b>{emoji("❌")} Заявка не подана</b>"
     
     if is_stage2_completed:
-        stage2_status_text = "<b>✅ Пройден</b>"
+        stage2_status_text = f"<b>{emoji("✅", "orange")}  Пройден</b>"
     elif is_submitted:
-        stage2_status_text = "<b>⏳ Доступен для прохождения</b>"
+        stage2_status_text = f"<b>{emoji("fire", "orange")}  Доступен для прохождения</b>"
     else:
-        stage2_status_text = "<b>🔒 Недоступен (заполни анкету)</b>"
+        stage2_status_text = f"<b>{emoji("cross", "orange")} Недоступен</b>"
 
     menu_text = (
-        f'{emoji("earth")} <b>Личный кабинет кандидата в команду волонтеров МБ 2026</b>\n\n'
+        f'{emoji("🌍")} <b>Личный кабинет кандидата в команду волонтеров МБ 2026</b>\n\n'
         f'<b>1-й этап (Анкета):</b> {stage1_status_text}\n'
-        f'<b>2-й этап (Тестовые задания):</b> {stage2_status_text}\n\n'
-        f'📅 Результаты отбора будут объявлены <b>4–7 октября 2026</b>.'
+        f'<b>2-й этап (Тестирование):</b> {stage2_status_text}\n\n'
+        f'{emoji("🕐")} Результаты отбора будут объявлены <b>4–7 октября 2026</b>.'
     )
     
     return {
@@ -101,7 +101,7 @@ menu_dialog = Dialog(
             when="not_submitted"
         ),
         Start(
-            Const("🚀 Пройти 2-й этап отбора"),
+            Const("➡️ 2-й этап"),
             id="start_stage2_from_menu",
             state=Stage2SG.MAIN,
             when="can_start_stage2"
@@ -117,9 +117,9 @@ menu_dialog = Dialog(
     Window(
         Const(
             "📞 <b>Контакты для связи:</b>\n\n"
-            "🔹 Основные вопросы: Карина (@karrrishenka), Даша (@drkirna)\n"
-            "🔹 Технические вопросы и бот: Артем (@zobko)\n"
-            "🔹 Официальный канал: @managementfuture"
+            f"{emoji("arrow_right")}  По всем вопросам обращайся в наш чат поддержки: @mbconf_support.\n\n"
+            f"{emoji("arrow_right")}  Технические вопросы: Артем (@zobko)\n\n"
+            f"{emoji("arrow_right")}  Официальный канал: @managementfuture"
         ),
         SwitchTo(
             Const("🔙 Назад"),
