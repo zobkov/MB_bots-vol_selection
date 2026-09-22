@@ -1,6 +1,6 @@
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 from aiogram_dialog import DialogManager, StartMode
 
 from bot.states import StartSG, ApplicationSG, MenuSG, ViewUserSG, Stage2SG, Stage2ReviewSG
@@ -21,6 +21,9 @@ from utils.logging_config import log_user_action
 
 router = Router()
 
+# callback_data кнопки "Главное меню" в разовых рассылках (см. broadcast.py)
+MAIN_MENU_CALLBACK = "go_to_main_menu"
+
 
 def check_is_admin(user_id: int, config: Config | None) -> bool:
     """Check if user_id is in config.admin_ids"""
@@ -29,24 +32,19 @@ def check_is_admin(user_id: int, config: Config | None) -> bool:
     return user_id in config.admin_ids
 
 
-@router.message(Command("start", "menu"))
-async def cmd_start_or_menu(message: Message, dialog_manager: DialogManager):
-    """Единый обработчик команд /start и /menu с проверкой статуса заявки"""
-    # Сбрасываем таймер этапа 2 при выходе в меню /start
-    cancel_user_timer(message.from_user.id)
-
+async def _open_main_menu_or_start(dialog_manager: DialogManager, telegram_id: int, telegram_username: str | None) -> None:
+    """Открывает главное меню, если анкета подана, иначе стартовый экран."""
     db: Database = dialog_manager.middleware_data.get("db")
     is_submitted = False
-    
+
     if db:
         session = await db.get_session()
         try:
             user_repo = UserRepository(session)
-            from database.repositories import ApplicationRepository
             app_repo = ApplicationRepository(session)
             db_user = await user_repo.get_or_create_user(
-                telegram_id=message.from_user.id,
-                telegram_username=message.from_user.username
+                telegram_id=telegram_id,
+                telegram_username=telegram_username
             )
             latest_app = await app_repo.get_latest_application_by_user_id(db_user.id)
             is_submitted = (db_user.status == "submitted") or (latest_app is not None)
@@ -54,11 +52,27 @@ async def cmd_start_or_menu(message: Message, dialog_manager: DialogManager):
                 await user_repo.update_status(db_user.telegram_id, "submitted")
         finally:
             await session.close()
-    
+
     if is_submitted:
         await dialog_manager.start(MenuSG.main, mode=StartMode.RESET_STACK)
     else:
         await dialog_manager.start(StartSG.welcome, mode=StartMode.RESET_STACK)
+
+
+@router.message(Command("start", "menu"))
+async def cmd_start_or_menu(message: Message, dialog_manager: DialogManager):
+    """Единый обработчик команд /start и /menu с проверкой статуса заявки"""
+    # Сбрасываем таймер этапа 2 при выходе в меню /start
+    cancel_user_timer(message.from_user.id)
+    await _open_main_menu_or_start(dialog_manager, message.from_user.id, message.from_user.username)
+
+
+@router.callback_query(F.data == MAIN_MENU_CALLBACK)
+async def cb_go_to_main_menu(callback: CallbackQuery, dialog_manager: DialogManager):
+    """Кнопка 'Главное меню' в сообщениях разовых рассылок (см. broadcast.py)"""
+    cancel_user_timer(callback.from_user.id)
+    await _open_main_menu_or_start(dialog_manager, callback.from_user.id, callback.from_user.username)
+    await callback.answer()
 
 
 @router.message(Command("apply"))

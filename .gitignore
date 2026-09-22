@@ -186,3 +186,5 @@ broadcasts.json
 alembic/versions/*.pyc
 
 reference_bot/
+
+users.csv
