@@ -3,7 +3,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, Message
 from aiogram_dialog import DialogManager, StartMode
 
-from bot.states import StartSG, ApplicationSG, MenuSG, ViewUserSG, Stage2SG, Stage2ReviewSG
+from bot.states import ApplicationSG, MenuSG, ViewUserSG, Stage2SG, Stage2ReviewSG
 from config.config import Config
 from database.repositories import UserRepository, ApplicationRepository, Stage2Repository
 from database.db import Database
@@ -32,10 +32,11 @@ def check_is_admin(user_id: int, config: Config | None) -> bool:
     return user_id in config.admin_ids
 
 
-async def _open_main_menu_or_start(dialog_manager: DialogManager, telegram_id: int, telegram_username: str | None) -> None:
-    """Открывает главное меню, если анкета подана, иначе стартовый экран."""
+async def _open_main_menu(dialog_manager: DialogManager, telegram_id: int, telegram_username: str | None) -> None:
+    """Регистрирует пользователя (если нужно) и открывает главное меню.
+    Меню само показывает актуальный статус заявки и кнопку ее заполнения,
+    если она еще не подана — отдельный стартовый экран не нужен."""
     db: Database = dialog_manager.middleware_data.get("db")
-    is_submitted = False
 
     if db:
         session = await db.get_session()
@@ -47,31 +48,27 @@ async def _open_main_menu_or_start(dialog_manager: DialogManager, telegram_id: i
                 telegram_username=telegram_username
             )
             latest_app = await app_repo.get_latest_application_by_user_id(db_user.id)
-            is_submitted = (db_user.status == "submitted") or (latest_app is not None)
             if latest_app and db_user.status != "submitted":
                 await user_repo.update_status(db_user.telegram_id, "submitted")
         finally:
             await session.close()
 
-    if is_submitted:
-        await dialog_manager.start(MenuSG.main, mode=StartMode.RESET_STACK)
-    else:
-        await dialog_manager.start(StartSG.welcome, mode=StartMode.RESET_STACK)
+    await dialog_manager.start(MenuSG.main, mode=StartMode.RESET_STACK)
 
 
 @router.message(Command("start", "menu"))
 async def cmd_start_or_menu(message: Message, dialog_manager: DialogManager):
-    """Единый обработчик команд /start и /menu с проверкой статуса заявки"""
+    """Единый обработчик команд /start и /menu — всегда открывает главное меню"""
     # Сбрасываем таймер этапа 2 при выходе в меню /start
     cancel_user_timer(message.from_user.id)
-    await _open_main_menu_or_start(dialog_manager, message.from_user.id, message.from_user.username)
+    await _open_main_menu(dialog_manager, message.from_user.id, message.from_user.username)
 
 
 @router.callback_query(F.data == MAIN_MENU_CALLBACK)
 async def cb_go_to_main_menu(callback: CallbackQuery, dialog_manager: DialogManager):
     """Кнопка 'Главное меню' в сообщениях разовых рассылок (см. broadcast.py)"""
     cancel_user_timer(callback.from_user.id)
-    await _open_main_menu_or_start(dialog_manager, callback.from_user.id, callback.from_user.username)
+    await _open_main_menu(dialog_manager, callback.from_user.id, callback.from_user.username)
     await callback.answer()
 
 
