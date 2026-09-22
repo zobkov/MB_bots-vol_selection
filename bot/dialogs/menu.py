@@ -118,12 +118,6 @@ menu_dialog = Dialog(
     Window(
         Format("{menu_text}"),
         Start(
-            Const("📝 Заполнить анкету (1-й этап)"),
-            id="start_app_from_menu",
-            state=ApplicationSG.full_name,
-            when="not_submitted"
-        ),
-        Start(
             Const("➡️ 2-й этап"),
             id="start_stage2_from_menu",
             state=Stage2SG.MAIN,
