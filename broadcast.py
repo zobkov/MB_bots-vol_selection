@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 """
-Разовая рассылка сообщения с картинкой пользователям бота из CSV-файла.
+Разовая рассылка пользователям бота из CSV-файла: альбом из картинок с
+подписью, затем отдельное сообщение с кнопкой «Главное меню» (Telegram не
+позволяет прикрепить inline-кнопку к альбому).
 
 Использование:
     poetry run python broadcast.py users.csv
     poetry run python broadcast.py users.csv --dry-run
     poetry run python broadcast.py users.csv --rate 15 --yes
-    poetry run python broadcast.py users.csv --no-photo   # только текст
+    poetry run python broadcast.py users.csv --no-photo   # только текст, без альбома
 
 CSV содержит только telegram_id, по одному на строку (заголовок опционален —
 если первая строка не число, она считается заголовком и пропускается).
 
-Текст сообщения задан константой MESSAGE_TEXT. Отправка с картинкой
-(PHOTO_PATH) или без нее переключается константой SEND_PHOTO (либо флагом
---no-photo для разового запуска без правки файла) — отредактируйте нужное
-и запустите скрипт заново.
+Текст подписи к альбому — константа MESSAGE_TEXT, текст второго сообщения
+с кнопкой — BUTTON_MESSAGE_TEXT. Отправка с альбомом (PHOTO_PATHS) или без
+него переключается константой SEND_PHOTO (либо флагом --no-photo для
+разового запуска без правки файла) — отредактируйте нужное и запустите
+скрипт заново.
 """
 
 import argparse
@@ -29,7 +32,7 @@ from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
-from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 
 from bot.handlers import MAIN_MENU_CALLBACK
 from config.config import load_config
@@ -39,22 +42,34 @@ from utils.emojis import combo_emojis, emoji
 # РЕДАКТИРУЕМЫЕ ПАРАМЕТРЫ РАССЫЛКИ
 # ============================================================================
 
+# Подпись к альбому (не более 1024 символов — лимит Telegram для caption)
 MESSAGE_TEXT = (
-    f'{combo_emojis("announcement_light_purple")} <b>Мы возвращаемся с прекрасной новостью!</b>\n\n'
-    "Первый этап отбора завершен, и мы готовы приступить к следующему. Тебе предстоит "
-    "выполнить тестовое задание и ответить на несколько вопросов в формате «кружков».\n\n"
-    f' {emoji("exclamation", color="orange")}  Внимательно прочитай инструкцию перед выполнением '
-    "задания. Ты можешь выполнить его до 27 сентября 23:59 включительно.\n\n"
-    f'<b>Советуем не откладывать на последний день и желаем удачи!</b> {emoji("sparkles", color="light_purple")}\n\n'
-    "По всем вопросам пиши в чат поддержки @mbconf_support\n"
-    "Если у тебя есть технические трудности с прохождением тестирования пиши напрямую Артёму @zobko"
+    f"{combo_emojis('last_call')}"
+    "Напоминаем, что до конца тестирования остался 1 день!\n\n"
+    "Если ты еще не прошел(-а) его, советуем не затягивать, а если ты со всем справился(-ась), "
+    "скрашиваем твое ожидание небольшим постом, в котором развеиваем мифы о волонтерстве "
+    f'{emoji("heart", color="light_blue")}\n\n'
+    "Скорее листай карточки, чтобы обо всем узнать и вдохновиться на продуктивную работу "
+    f'{emoji("sparkles", color="light_blue")}'
 )
 
-# Переключатель: отправлять с картинкой (PHOTO_PATH) или чистым текстом.
+# Второе сообщение — отправляется сразу после альбома, несет кнопку меню
+BUTTON_MESSAGE_TEXT = (
+    "Если ты еще не прошел(-а) тестирование, то можешь его пройти перейдя по кнопке «🏠 Главное меню».\n\n"
+    f'Там же можно найти контакты поддержки и статус твоей заявки {emoji("star", color="light_blue")}'
+)
+
+# Переключатель: отправлять с альбомом (PHOTO_PATHS) или чистым текстом.
 # Можно также временно отключить фото флагом --no-photo, не трогая файл.
 SEND_PHOTO = True
 
-PHOTO_PATH = Path("assets/broadcast_pic/1.png")
+# Порядок в списке = порядок карточек в альбоме (в альбоме от 2 до 10 фото)
+PHOTO_PATHS = [Path(f"assets/broadcast_pic/{i}.png") for i in range(1, 6)]
+
+# Перед рассылкой альбом один раз отправляется в этот чат: так файлы
+# загружаются на сервера Telegram единожды, а всем получателям уходят
+# уже по полученным file_id.
+FILE_ID_CACHE_CHAT_ID = 257026813
 
 # Кнопка "Главное меню" — callback_data обрабатывается в bot/handlers.py
 # (cb_go_to_main_menu), поэтому кнопка работает, только пока бот запущен.
@@ -100,19 +115,12 @@ def read_telegram_ids(csv_path: Path) -> list[int]:
     return ids
 
 
-async def send_with_retry(bot: Bot, chat_id: int, photo, max_retries: int = 3) -> tuple[bool, str]:
-    """Отправляет фото с подписью (или просто текст, если photo is None),
-    автоматически выжидая при flood-control (429)."""
+async def call_with_retry(chat_id: int, send, max_retries: int = 3) -> tuple[bool, object]:
+    """Вызывает send() (корутину отправки), автоматически выжидая при
+    flood-control (429). Возвращает (True, результат) или (False, причина)."""
     for attempt in range(1, max_retries + 1):
         try:
-            if photo is not None:
-                message = await bot.send_photo(
-                    chat_id=chat_id, photo=photo, caption=MESSAGE_TEXT, reply_markup=MAIN_MENU_KEYBOARD
-                )
-                return True, message.photo[-1].file_id
-            else:
-                await bot.send_message(chat_id=chat_id, text=MESSAGE_TEXT, reply_markup=MAIN_MENU_KEYBOARD)
-                return True, ""
+            return True, await send()
         except TelegramRetryAfter as e:
             logger.warning(
                 "Flood control для %d: жду %d сек. (попытка %d/%d)",
@@ -131,6 +139,46 @@ async def send_with_retry(bot: Bot, chat_id: int, photo, max_retries: int = 3) -
     return False, "flood_control_exhausted"
 
 
+async def upload_photos(bot: Bot) -> list[str]:
+    """Загружает PHOTO_PATHS одним альбомом в FILE_ID_CACHE_CHAT_ID и
+    возвращает file_id фото в том же порядке."""
+    media = [InputMediaPhoto(media=FSInputFile(path)) for path in PHOTO_PATHS]
+    ok, result = await call_with_retry(
+        FILE_ID_CACHE_CHAT_ID,
+        lambda: bot.send_media_group(chat_id=FILE_ID_CACHE_CHAT_ID, media=media),
+    )
+    if not ok:
+        raise RuntimeError(f"Не удалось загрузить фото в чат {FILE_ID_CACHE_CHAT_ID}: {result}")
+    return [message.photo[-1].file_id for message in result]
+
+
+async def send_to_user(bot: Bot, chat_id: int, photos: list[str] | None) -> tuple[bool, str]:
+    """Отправляет альбом по file_id с подписью MESSAGE_TEXT (или просто
+    текст, если photos is None), затем сообщение с кнопкой. Каждый шаг
+    ретраится отдельно, чтобы при flood-control альбом не ушел
+    пользователю дважды."""
+    if photos is not None:
+        media = [
+            InputMediaPhoto(media=photo, caption=MESSAGE_TEXT if idx == 0 else None)
+            for idx, photo in enumerate(photos)
+        ]
+        ok, result = await call_with_retry(chat_id, lambda: bot.send_media_group(chat_id=chat_id, media=media))
+        if not ok:
+            return False, result
+    else:
+        ok, result = await call_with_retry(chat_id, lambda: bot.send_message(chat_id=chat_id, text=MESSAGE_TEXT))
+        if not ok:
+            return False, result
+
+    ok, result = await call_with_retry(
+        chat_id,
+        lambda: bot.send_message(chat_id=chat_id, text=BUTTON_MESSAGE_TEXT, reply_markup=MAIN_MENU_KEYBOARD),
+    )
+    if not ok:
+        return False, f"button_message_failed: {result}"
+    return True, ""
+
+
 def write_report(results: list[tuple[int, str]]) -> Path:
     reports_dir = Path("logs")
     reports_dir.mkdir(exist_ok=True)
@@ -144,9 +192,10 @@ def write_report(results: list[tuple[int, str]]) -> Path:
 
 
 async def broadcast(csv_path: Path, rate_per_sec: float, dry_run: bool, skip_confirm: bool, send_photo: bool) -> None:
-    if send_photo and not PHOTO_PATH.exists():
+    missing = [str(path) for path in PHOTO_PATHS if not path.exists()]
+    if send_photo and missing:
         raise FileNotFoundError(
-            f"Не найдена картинка рассылки: {PHOTO_PATH}. Положите файл 1.png в assets/broadcast_pic/ "
+            f"Не найдены картинки рассылки: {', '.join(missing)}. Положите их в assets/broadcast_pic/ "
             f"или запустите с --no-photo для отправки только текста."
         )
 
@@ -156,8 +205,9 @@ async def broadcast(csv_path: Path, rate_per_sec: float, dry_run: bool, skip_con
         return
 
     logger.info("Получателей: %d", len(telegram_ids))
-    logger.info("Режим: %s", "с картинкой" if send_photo else "только текст")
-    logger.info("Текст сообщения:\n%s", MESSAGE_TEXT)
+    logger.info("Режим: %s", f"альбом из {len(PHOTO_PATHS)} фото + сообщение с кнопкой" if send_photo else "только текст")
+    logger.info("Текст подписи к альбому:\n%s", MESSAGE_TEXT)
+    logger.info("Текст сообщения с кнопкой:\n%s", BUTTON_MESSAGE_TEXT)
 
     if dry_run:
         logger.info("Режим dry-run: сообщения не отправляются")
@@ -174,18 +224,15 @@ async def broadcast(csv_path: Path, rate_per_sec: float, dry_run: bool, skip_con
 
     delay = 1.0 / rate_per_sec
     results: list[tuple[int, str]] = []
-    file_id: str | None = None
 
     try:
+        file_ids: list[str] | None = None
+        if send_photo:
+            file_ids = await upload_photos(bot)
+            logger.info("Фото загружены в чат %d, file_id: %s", FILE_ID_CACHE_CHAT_ID, file_ids)
+
         for i, chat_id in enumerate(telegram_ids, start=1):
-            photo = None
-            if send_photo:
-                # Первая отправка загружает файл и возвращает file_id, дальше
-                # переиспользуем его — так быстрее и не грузит файл заново.
-                photo = file_id if file_id else FSInputFile(PHOTO_PATH)
-            ok, info = await send_with_retry(bot, chat_id, photo)
-            if ok and send_photo and file_id is None:
-                file_id = info
+            ok, info = await send_to_user(bot, chat_id, file_ids)
             results.append((chat_id, "sent" if ok else info))
             logger.info("[%d/%d] %d -> %s", i, len(telegram_ids), chat_id, "OK" if ok else info)
 
@@ -201,7 +248,7 @@ async def broadcast(csv_path: Path, rate_per_sec: float, dry_run: bool, skip_con
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Рассылка сообщения с картинкой пользователям из CSV")
+    parser = argparse.ArgumentParser(description="Рассылка альбома и сообщения с кнопкой пользователям из CSV")
     parser.add_argument("csv_file", type=Path, help="Путь к CSV с telegram_id (по одному в строке)")
     parser.add_argument(
         "--rate", type=float, default=DEFAULT_RATE_PER_SEC,
@@ -211,7 +258,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--yes", action="store_true", help="Не спрашивать подтверждение перед отправкой")
     parser.add_argument(
         "--no-photo", action="store_true",
-        help="Отправить только текст, без картинки (переопределяет SEND_PHOTO в скрипте)",
+        help="Отправить только текст, без альбома (переопределяет SEND_PHOTO в скрипте)",
     )
     return parser.parse_args()
 
