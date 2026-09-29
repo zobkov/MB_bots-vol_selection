@@ -1,9 +1,9 @@
 import logging
 from aiogram_dialog import Dialog, DialogManager, Window
-from aiogram_dialog.widgets.kbd import Start, SwitchTo
+from aiogram_dialog.widgets.kbd import SwitchTo
 from aiogram_dialog.widgets.text import Const, Format
 
-from bot.states import MenuSG, ApplicationSG, Stage2SG
+from bot.states import MenuSG
 from config.config import Config
 from database.db import Database
 from database.repositories import UserRepository, ApplicationRepository, Stage2Repository
@@ -91,17 +91,17 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
 
     stage1_status_text = f"<b>{emoji('✅')}  Заявка подана</b>" if is_submitted else f"<b>{emoji('❌')} Заявка не подана</b>"
 
+    # 2-й этап окончен — прохождение закрыто для всех
     if is_stage2_completed:
         stage2_status_text = f"<b>{emoji('✅', 'orange')}  Пройден</b>"
-    elif is_submitted:
-        stage2_status_text = f"<b>{emoji('fire', 'orange')}  Доступен для прохождения</b>"
     else:
-        stage2_status_text = f"<b>{emoji('cross', 'orange')} Недоступен</b>"
+        stage2_status_text = f"<b>{emoji('cross', 'orange')} Окончен</b>"
 
     menu_text = (
         f'{emoji("🌍")} <b>Личный кабинет кандидата в команду волонтеров МБ 2026</b>\n\n'
         f'<b>1-й этап (Анкета):</b> {stage1_status_text}\n'
         f'<b>2-й этап (Тестирование):</b> {stage2_status_text}\n\n'
+        f'{emoji("arrow_right")}  Отбор завершен, прием ответов на 2-й этап закрыт.\n\n'
         f'{emoji("🕐")} Результаты отбора будут объявлены <b>4–7 октября 2026</b>.'
     )
 
@@ -109,7 +109,7 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
         "menu_text": menu_text,
         "is_submitted": is_submitted,
         "not_submitted": not is_submitted,
-        "can_start_stage2": is_submitted and not is_stage2_completed,
+        "can_start_stage2": False,
         "stage2_completed": is_stage2_completed,
     }
 
@@ -117,12 +117,6 @@ async def get_menu_data(dialog_manager: DialogManager, **kwargs):
 menu_dialog = Dialog(
     Window(
         Format("{menu_text}"),
-        Start(
-            Const("➡️ 2-й этап"),
-            id="start_stage2_from_menu",
-            state=Stage2SG.MAIN,
-            when="can_start_stage2"
-        ),
         SwitchTo(
             Const("📞 Поддержка"),
             id="to_support",

@@ -74,7 +74,12 @@ async def cb_go_to_main_menu(callback: CallbackQuery, dialog_manager: DialogMana
 
 @router.message(Command("apply"))
 async def cmd_apply(message: Message, dialog_manager: DialogManager):
-    """Прямой запуск анкеты по команде /apply"""
+    """Прямой запуск анкеты по команде /apply (этап окончен — только для админов)"""
+    config: Config = dialog_manager.middleware_data.get("config")
+    if not check_is_admin(message.from_user.id, config):
+        await message.answer("1-й этап отбора окончен, прием анкет закрыт.")
+        return
+
     cancel_user_timer(message.from_user.id)
     db: Database = dialog_manager.middleware_data.get("db")
     
@@ -94,7 +99,12 @@ async def cmd_apply(message: Message, dialog_manager: DialogManager):
 
 @router.message(Command("stage2"))
 async def cmd_stage2(message: Message, dialog_manager: DialogManager):
-    """Прямой запуск 2-го этапа по команде /stage2"""
+    """Прямой запуск 2-го этапа по команде /stage2 (этап окончен — только для админов)"""
+    config: Config = dialog_manager.middleware_data.get("config")
+    if not check_is_admin(message.from_user.id, config):
+        await message.answer("2-й этап отбора окончен, прием ответов закрыт.")
+        return
+
     db: Database = dialog_manager.middleware_data.get("db")
     if db:
         session = await db.get_session()
